@@ -6,6 +6,8 @@
 
 この記事は「やったこと・分かったこと・つまずいた所」を、後から人に説明できる形で全部まとめたものです。
 
+> **続編あり**: 第1部（1〜19章）は **mozcpy ＋ ローカルLLMスコアリング（Python サービス）** 時代の記録です。その後、変換エンジンを **AzooKeyKanaKanjiConverter ＋ Zenzai（zenz ニューラルモデル）** に作り直し、**Python を撤去して単一プロセス**にしました。移行の経緯は [**第2部（20章〜）**](#第2部--azookey--zenzai-への移行2026-06) を参照。現行構成のリファレンスは [`architecture.md`](./architecture.md)、旧構成は [`architecture-legacy.md`](./architecture-legacy.md)。
+
 ---
 
 ## 1. 何を作ったか
@@ -345,7 +347,7 @@ LLM が「飴」「汽車」を**正しい文脈でも確信を持って却下**
 
 ---
 
-## 19. 全体を通しての教訓
+## 19. 第1部の教訓 — ローカルLLMスコアリング時代
 
 1. **IME 開発の難所は変換ではなく OS への登録**（`.inputmethod.` 規約、署名は無関係）
 2. **辞書(Mozc)は強い**。文脈無しの素直な文なら十分で、候補内率27/30
@@ -360,15 +362,95 @@ LLM が「飴」「汽車」を**正しい文脈でも確信を持って却下**
 11. **実測がすべて**: 「このモデルが良いはず」「区切れば正解率が上がるはず」はどちらも外れた。ベンチで確かめる
 12. **賢いのはモデルとは限らない**: 同音語の文脈分岐は、弱い1.7Bより**ユーザー自身の履歴**の方が当たる。学習をLLMに従属させず、独立に効かせる設計が正解だった
 
-## 付録: 主要ファイル・構成
+---
 
-- `Sources/RomKanaController.swift` — IMKInputController。イベント/候補/確定/文脈追跡、ローマ字preedit（`renderComposing`）、Space=空白/Shift+Space=変換、区切り変換（`startSegmentedConversion`）、上限つき同期待ち（`startConversion`）、IMEメニュー（`menu()`＝学習確認/リセット/辞書編集）。
+# 第2部 — AzooKey + Zenzai への移行（2026-06）
+
+第1部は「辞書＋汎用LLMスコアリング」で 17〜26/30 まで来たが、二つの壁があった。**（a）汎用LLMはどう使っても変換専用には及びにくい**。**（b）Python/MLX を別プロセスで常駐させる重さ（~1.2GB）と、HTTP往復・LaunchAgent 管理の煩わしさ**。ここで、かな漢字変換に特化したニューラル変換がローカルで動く選択肢が見つかったので、エンジンごと作り直した。
+
+## 20. なぜ作り直したか — zenz / Zenzai との出会い
+
+- クラウド生成（Sumibi 系）は賢いが、ネット必須・往復遅延・プライバシーの懸念。完全ローカルの方針は変えたくない。
+- そこで **zenz**（ensan 氏のかな漢字変換特化モデル、CC-BY-SA、HuggingFace 配布）と、それを使う **AzooKeyKanaKanjiConverter** を発見。Zenzai は **llama.cpp ＋ zenz GGUF** をローカルで回し、辞書変換の上に乗せて候補を賢く並べる仕組み。
+- 同音異義の標準セットで素早く評価したら、辞書＋汎用LLMより素直に強い感触。「**専用モデルをローカルで**」が両方の壁を同時に超えそうだったので移行を決めた。
+
+## 21. AzooKeyKanaKanjiConverter とは
+
+- 純 Swift のかな漢字変換ライブラリ（MIT）。`KanaKanjiConverter.requestCandidates(_:options:)` に、かな読みを積んだ `ComposingText` と `ConvertRequestOptions` を渡すと候補が返る。
+- `traits: ["Zenzai"]` を有効にすると Zenzai（zenz ニューラル変換）が使える。重みは `zenzaiMode: .on(weight: GGUF, inferenceLimit:, personalizationMode:)` で渡す。
+- 採用モデルは **zenz-v3.2-small** の `ggml-model-Q5_K_M.gguf`（GPT-2系 char、約95Mパラメータ、量子化後 **70MB**）。旧構成の MLX/Qwen3-1.7B（~1.2GB）と桁が違う。
+
+## 22. つまずき① — Cxx interop と SwiftyMarisa（真因は自分側）
+
+ビルドで AzooKey の依存（SwiftyMarisa, C++ の marisa-trie バインディング）がコンパイルできず、最初は「SwiftyMarisa が壊れている」と思い込んでヘッダ修正や modulemap をいじった（SPM が再生成して無駄）。**真因は消費側ターゲットに `.interoperabilityMode(.Cxx)` が無かったこと**。これを付けたら一発で通った。SwiftyMarisa は壊れていなかった（上流PRも不要）。教訓: 「ライブラリが悪い」と決める前に自分のビルド設定を疑う。
+
+## 23. つまずき② — dyld と codesign
+
+- **dyld クラッシュ「Library not loaded: @rpath/llama.framework」**: Zenzai の llama.cpp は動的フレームワーク。`Contents/MacOS/llama.framework` に同梱し忘れて落ちた。`@rpath`（`@loader_path`→`Contents/MacOS`）で読むので、ビルド成果物の `llama.framework` をコピーして解決。
+- **codesign「bundle format unrecognized」**: AzooKey の辞書リソース `.bundle` に Info.plist が無く、入れ子バンドルとして弾かれた。`.bundle` ごとでなく **`Dictionary` フォルダだけ**を普通のリソースとして置き、`dictionaryResourceURL` で明示的に指す方式に変更（`Bundle.module` は `Contents/Resources` を見ないので元々使えない）。
+- **Swift 6 の並行性**: `requestCandidates`/初期化が `@MainActor`。クラスを `@MainActor` 指定。`sending 'server'` の strict-concurrency エラーは `.swiftLanguageMode(.v5)` で回避。
+
+## 24. 単一プロセス化 — Python を撤去
+
+変換が純 Swift ＋軽量 GGUF で完結するので、**別プロセスにする理由が消えた**。HTTP サービス・LaunchAgent・`.venv`・MLX を捨て、変換を IME プロセス内へ。`KanaKanjiConverter` は **静的に1つ共有**して、zenz の GGUF/Metal ロードをプロセスで一度だけにする。常駐は **~1.2GB → ~74MB**。
+
+- **初回変換が遅い問題**: モデルロードに ~1〜2秒。`activateServer` でダミー変換（`warmupReading`）して**ウォームアップ**。以降の変換は ~50ms。
+
+## 25. 同一30問での実測 — 旧 vs 新（正直な結果）
+
+移行後「精度が上がった気がしない」と感じたので、旧実装を残したまま**同じ30問で top1 を直接比較**した。
+
+| 方式 | 正解 | 速度 | メモリ |
+|---|---|---|---|
+| 旧: mozcpy 辞書のみ | 22/30 | ~20ms | — |
+| 旧: mozcpy + Qwen3-1.7B | 26/30 | ~100–280ms | ~1.2GB |
+| **現: AzooKey + Zenzai** | **28/30** | **~50ms** | **74MB** |
+
+全体では現行が上。ただし**割れた問題のうち1つは旧が勝った**: 「けっきょくせいどがよくなった」→ 旧Qwen=**精度**○ / 現Zenzai=**制度**✗。よりによって自分が実際に打った文だった。広い文脈理解は 1.7B の方が強い場面が残る、という正直な結果（「飴/雨」は両方とも外す）。**速度・メモリ・依存の無さは現行が圧勝**なので、戻さず現行のまま弱点を潰す方針にした。
+
+## 26. 候補UXの作り直し
+
+- **ゴミ候補問題**: `mainResults` は「文まるごと」だけでなく「途中までの文節候補」も含む（精度が／精度／制度／セイド…）。flat に出すとゴミが増える。→ **入力全体をカバーする候補（`correspondingCount == 入力長`）を先頭**に、部分候補を後ろに回した。
+- **候補が少なすぎ問題**: 絞りすぎると同音異義を選び直せない。→ ユーザーが **空白で区切る＝文節境界を教えてくれる**ことを利用。空白チャンクごとに上位候補を取り、「**1チャンクだけ別候補に差し替えた文**」を並べる。これで `制度が上がらない…` の次に `精度が上がらない…` が出る。文はキレイなまま、1語だけ選び直せる。
+
+## 27. ユーザー辞書と学習（AzooKey 組み込み）
+
+- **ユーザー辞書**: `userdict.json`（`{"読み":["表記"]}`）を読み、読み（ひらがな）をカタカナのルビ（AzooKey の `ruby` フィールド＝読み）に直して `DicdataElement` を作り、`sendToDicdataStore(.importDynamicUserDict(...))` で動的辞書に流す。`activateServer` ごとに再読込。
+- **学習**: 確定時に選んだ `Candidate` を `updateLearningData` ＋ `setCompletedData` に渡すだけ。`learningType: .inputAndOutput`、学習データは App Support 配下に永続化。自前の文脈バケツ学習（第1部）より**ライブラリ組み込みの方が精度が良い**と判断して採用。
+
+## 28. 設定の外部化 — config.json
+
+チューニング値（`nBest`/`inferenceLimit`/チャンク候補数/学習ON-OFF/ユーザー辞書の重み/モデルファイル名/ウォームアップ語/英字verbatimパターン/デバッグログ）をコード直書きから **`config.json`** に出した。既定値はコード側、ファイルが無ければ自動生成、一部キーだけの部分上書きも可。反映は IME 再選択時。メニューに「設定を編集…」を追加。
+
+## 29. 大掃除 — 7GB 回収
+
+移行が固まったので旧実装を撤去。**約 10GB → 2.9GB**。
+
+- 削除: 無関係なFT実験モデル `gemma4-optiq`（4.9G）、未使用 `zenz-v2.5-medium`（591M）、旧Xcode出力 `build/`、`.venv`（1.5G）、`service/`（server.py＋plist）、`scripts/convert_test*.py`、未参照の `Sources/ConversionClient.swift`。
+- LaunchAgent `com.toshinao.romkana.service` を bootout・無効化し、plist も削除（ポート8765停止確認）。
+- 残したのは現行が使う `zenz-v3.2-small-gguf`（70M）と SwiftPM キャッシュ `.build` のみ。
+
+## 30. 第2部の教訓
+
+1. **専用モデル ＞ 汎用LLMの工夫**: かな漢字変換は、汎用LLMをどう賢く使うかより、変換特化の zenz をローカルで回す方が素直に強く・軽く・速い。
+2. **「ライブラリが壊れている」の前に自分のビルド設定を疑う**: SwiftyMarisa の件は真因が consumer 側の Cxx interop 設定だった。
+3. **配布の難所は dyld と codesign**: フレームワーク同梱（@rpath）と、Info.plist 無し `.bundle` の署名回避（素フォルダ＋明示URL）。
+4. **移行は「感覚」でなく「同一条件の実測」で評価する**: 旧を残して同じ30問で比較したから、「全体は勝ち・でも一部は負け」という正直な像が見えた。
+5. **速い同期は UX を単純にする**: ~50ms なら、第1部で苦労した非同期・deadline・順番ジャンプが丸ごと要らなくなった。
+6. **構造化された残骸は大きい**: 実験モデルや旧ランタイムで簡単に数GB積もる。移行が固まったら撤去する。
+
+---
+
+## 付録: 主要ファイル・構成（現行）
+
+- `Sources/main.swift` — `IMKServer` 起動、`NSManualApplication`/`AppDelegate`、入力ソース登録（`TISRegisterInputSource`）。
+- `Sources/RomKanaController.swift` — IMKInputController。イベント/変換/候補/確定/学習/ユーザー辞書/設定/メニュー。ローマ字preedit（`renderComposing`）、Space=空白/Shift+Space=変換、区切り変換（チャンク別代替候補）、文まるごと変換（全体カバー優先）、確定で `updateLearningData`/`setCompletedData`。
 - `Sources/RomajiConverter.swift` — ローカル romaji→かな表。
-- `service/server.py` — mozcpy 候補生成 ＋ LLM sum-scoring リランク（`_rerank`＝バッチ＋KVキャッシュ）、区切り変換（`convert_segments`、dict-only）、**文脈つき適応学習**（`record_choice`/`_apply_learned`/`reset_learned`、キー=`<文脈バケツ>\t<読み>`、広域フォールバック）、ユーザー辞書（`_apply_userdict`＋mtimeホットリロード）。
-- エンドポイント — `POST /convert`（`segments`対応）/ `POST /learn` / `POST /reset_learn` / `GET /learned` / `GET /health`。
-- データ — `~/Library/Application Support/RomKana/learned.json`（学習）、`userdict.json`（ユーザー辞書）。
-- `scripts/build_install.sh` — swiftc ビルド→バンドル組立→ad-hoc署名→再読込。
-- 採用モデル — `mlx-community/Qwen3-1.7B-4bit`。
-- ベンチ/データ生成/FT スクリプト群（`/tmp/bench_*.py`, `/tmp/gen_*.py` 等。※本番化で掃除予定）。
+- `Sources/Config.swift` — `config.json` の読み込み・既定生成。
+- `Package.swift` — `AzooKeyKanaKanjiConverter`（trait `Zenzai`）依存、`.interoperabilityMode(.Cxx)` ＋ `.swiftLanguageMode(.v5)`。
+- `models/zenz-v3.2-small-gguf/ggml-model-Q5_K_M.gguf` — 同梱する zenz モデル（70MB）。
+- `scripts/build_install.sh` — `swift build` → バンドル組立（実行ファイル＋`llama.framework`＋`Dictionary`フォルダ＋GGUF）→ ad-hoc署名 → 再読込。
+- データ — `~/Library/Application Support/RomKana/`: `config.json`（設定）、`userdict.json`（ユーザー辞書）、AzooKey 学習メモリ。
+- リファレンス — 現行 [`architecture.md`](./architecture.md) / 旧 [`architecture-legacy.md`](./architecture-legacy.md)。
 
-（記録はここまで。残りは本番化＝デバッグログ・一時コードの除去と、不要キャッシュモデルの掃除。）
+（記録はここまで。現行は AzooKey + Zenzai の単一プロセス構成。）

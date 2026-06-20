@@ -4,3 +4,5 @@ models/
 *.pyc
 *.bin
 build/
+.build/
+.DS_Store

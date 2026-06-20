@@ -1,12 +1,14 @@
 # RomKana アーキテクチャ
 
-ローマ字を文脈つきでかな漢字に変換する、**完全ローカル**の macOS 入力メソッド（IME）。この文書は構成・データの流れ・設計判断をまとめたリファレンス。経緯・なぜそうしたかは [`development-journey.md`](./development-journey.md) を参照。
+ローマ字を文脈つきでかな漢字に変換する、**完全ローカル**の macOS 入力メソッド（IME）。この文書は現行構成・データの流れ・設計判断をまとめたリファレンス。経緯・なぜそうしたかは [`development-journey.md`](./development-journey.md) を参照。
+
+> 旧構成（mozcpy + LLM スコアリングの Python 2プロセス）は [`architecture-legacy.md`](./architecture-legacy.md) に分離しています。2026-06-21 に AzooKey + Zenzai へ移行し、Python サービスを撤去しました。
 
 ---
 
 ## 1. 全体像
 
-**2プロセス構成**。表示・入力は Swift の IME、重い変換は Python の常駐サービスに分離している。
+**単一プロセス構成**。入力も変換も RomKana.app の中で完結する。外部サービス・ネットワーク往復は無い。
 
 ```
 ┌──────────────────────────────────────────────────┐
@@ -16,36 +18,42 @@
                     │ （preedit 表示 / 確定 insert / 候補ウィンドウ）
 ┌───────────────────┴──────────────────────────────┐
 │ RomKana.app   — Swift + InputMethodKit            │
-│   キー入力 → ローマ字 preedit → Shift+Space で変換 │
-│   候補ウィンドウ・確定・学習トリガ・管理メニュー    │
-└───────────────────▲──────────────────────────────┘
-                    │ HTTP / JSON  (127.0.0.1:8765, localhost のみ)
-┌───────────────────┴──────────────────────────────┐
-│ 変換サービス  — Python（LaunchAgent で常駐）        │
-│   mozcpy 辞書 n-best ＋ LLM sum-loglik リランク     │
-│   (MLX / Qwen3-1.7B) ＋ ユーザー辞書 ＋ 文脈つき学習 │
+│                                                    │
+│   RomajiConverter        ローマ字 → かな（即時）   │
+│        │                                           │
+│        ▼                                           │
+│   KanaKanjiConverter      かな → 漢字              │
+│   （AzooKeyKanaKanjiConverter, プロセス内）        │
+│        ├─ 同梱辞書（Dictionary フォルダ）          │
+│        ├─ Zenzai = zenz ニューラルモデル          │
+│        │     llama.cpp(llama.framework) + GGUF     │
+│        ├─ 学習メモリ（確定で更新）                 │
+│        └─ 動的ユーザー辞書（userdict.json）        │
 └───────────────────▲──────────────────────────────┘
                     │ 読み書き
-              learned.json（学習） / userdict.json（辞書）
+   ~/Library/Application Support/RomKana/
+        config.json / userdict.json / 学習メモリ
 ```
 
-**なぜ2プロセスか**: IME はあらゆるアプリのプロセスに読み込まれる軽量・常時生存のコンポーネントである必要があり、そこに数GBの LLM ランタイム（MLX/Python）を抱えさせたくない。変換は1つの常駐サービスに集約し、IME は薄いクライアントに保つ。サービスはモデルを1度だけロードして使い回す。
+**なぜ単一プロセスになったか**: 変換エンジンが純 Swift パッケージ（AzooKeyKanaKanjiConverter）になり、ニューラル変換も llama.cpp を組み込んだ軽量モデル（zenz, GGUF 70MB）で動くため、IME プロセスに直接抱えても軽い（常駐 ~74MB）。旧構成で Python/MLX を別プロセスに逃がしていた理由（数GBのランタイムを各アプリに載せたくない）が消えたので、HTTP サービスを廃止して薄く・速くした。
 
 ---
 
-## 2. プロセス1 — RomKana.app（Swift / InputMethodKit）
+## 2. RomKana.app（Swift / InputMethodKit）
 
-役割: キー入力の解釈、ローマ字→かなの即時表示、変換要求、候補ウィンドウ、確定、学習トリガ、管理メニュー。**変換ロジックは持たない**（サービスに委譲）。
+役割: キー入力の解釈、ローマ字→かなの即時表示、かな→漢字変換、候補ウィンドウ、確定、学習、ユーザー辞書・設定の読み込み、管理メニュー。**変換は外部に出さず、すべてプロセス内で行う。**
 
 ### 主要ファイル
 
 | ファイル | 役割 |
 |---|---|
-| `Sources/main.swift` | `IMKServer` 起動、`NSManualApplication`/`AppDelegate`、入力ソース登録の儀式 |
-| `Sources/RomKanaController.swift` | `IMKInputController` 本体。イベント処理・候補・確定・文脈追跡・サービス通信・メニュー（中核、~590行） |
-| `Sources/RomajiConverter.swift` | ローカルの romaji→かな変換表（サービス不要・即時） |
-| `Sources/Log.swift` / `DebugLog` | デバッグログ（本番化で除去予定） |
-| `Sources/ConversionClient.swift` | ※レガシー（未配線）。実際の通信は Controller 内の `URLSession` 直叩き |
+| `Sources/main.swift` | `IMKServer` 起動、`NSManualApplication`/`AppDelegate`、入力ソース登録（`TISRegisterInputSource`） |
+| `Sources/RomKanaController.swift` | `IMKInputController` 本体。イベント処理・変換要求・候補・確定・学習・ユーザー辞書・設定・メニュー（中核） |
+| `Sources/RomajiConverter.swift` | ローカルの romaji→かな変換表（即時・依存なし） |
+| `Sources/Config.swift` | `config.json` の読み込み（既定値つき・部分上書き・無ければ自動生成） |
+| `Sources/Log.swift` / `DebugLog` | ログ補助（`os.Logger`、および `config.debugLog` で切替えるファイルログ） |
+
+`KanaKanjiConverter` は `RomKanaController` 内で **静的に1つだけ共有**する。zenz の GGUF と Metal は初回ロードが重い（~1〜2秒）ため、テキストフィールドやセッションごとに作らず、プロセスで一度だけ読む。
 
 ### 入力時のイベントフロー（`RomKanaController`）
 
@@ -69,172 +77,207 @@
 
 ```
 startConversion
-   ├─ romajiBuffer に空白あり → startSegmentedConversion
-   │     各空白セグメントを独立変換して連結（サービスの segments API、dict-only）
-   │     大文字始まり/子音のみの英字（AI, LLM）はそのまま確定
+   ├─ romajiBuffer に空白あり → 区切り変換（Sumibi 風）
+   │     各空白チャンクを独立に変換し、チャンクごとに上位候補（最大 chunkCandidateLimit）を取得
+   │     候補#0 = 全チャンクの1番を連結
+   │     以降    = 1チャンクだけ別候補に差し替えた文を列挙（同音異義を1語だけ選び直せる）
+   │     大文字始まりの英字（AI, LLM, API）は変換せずそのまま（latinVerbatim）
    │
-   └─ 空白なし → 単体変換（上限つき同期待ち）
+   └─ 空白なし → 文まるごと変換
          ① composedReading()  : RomajiConverter で romaji→かな
-         ② 辞書(use_llm:false) と LLM(use_llm:true) を /convert へ並行発射
-         ③ 最大 400ms だけ LLM を待つ
-              間に合えば LLM 順、超えたら辞書順で確定（以後並べ替えない＝ジャンプ無し）
-         ④ showCandidates（候補ウィンドウ表示・先頭をインライン）
+         ② ComposingText に積んで KanaKanjiConverter.requestCandidates（Zenzai 有効）
+         ③ mainResults を「入力全体をカバーする候補（correspondingCount == 入力長）」を先頭、
+            部分候補を後ろ、に並べ替え（途中まで候補のゴミを下げ、本命の文を上に）
+         ④ 大文字英字の verbatim と、最後に生かな読みを fallback として追加
+         ⑤ showCandidates（候補ウィンドウ表示・先頭をインライン）
 ```
+
+requestCandidates は**同期・高速（warm で ~50ms）**なので、イベント処理中にそのまま呼んで結果を出す。旧構成のような「非同期待ち」「上限つき deadline」「順番のジャンプ」は無い。
 
 ### 確定と学習（`commit`）
 
 ```
 commit(text)
    ├─ insertText（アプリに確定文字を挿入）
-   ├─ recentContext 更新（直近24字を保持。次の変換の文脈）
-   ├─ learn(reading, surface, priorContext) → /learn（fire-and-forget）
+   ├─ 選んだ候補が Candidate なら
+   │     updateLearningData(cand)  … AzooKey 学習メモリへ
+   │     setCompletedData(cand)    … 文脈（直前確定）キャッシュへ
    └─ reset
 ```
 
-`recentContext`（直近の確定テキスト24字）が「文脈」として変換にも学習にも使われる。
+学習は **AzooKey 組み込みのもの**を使う。確定した `Candidate` をそのまま渡すと、読み→表記の選好と直前文脈が反映される。学習データは Application Support 配下に永続化される（`memoryDirectoryURL`）。
+
+> 区切り変換の候補は複数チャンクを連結した文字列なので、対応する単一の `Candidate` が無い。この経路では学習トリガを発火しない（`lastCandidates` を空にする）。
 
 ### 管理メニュー（`menu()`）
 
-入力ソースアイコンのメニュー。`/learned`・`/reset_learn` を叩く、または辞書ファイルを開く。
+入力ソースアイコンのメニュー。
 
-- 学習内容を確認 / 学習をリセット / ユーザー辞書を編集…
+- **学習をリセット** — 次の変換で `shouldResetMemory` を一度だけ立て、AzooKey 学習を消去
+- **ユーザー辞書を編集…（再選択で反映）** — `userdict.json` を開く
+- **設定を編集…（再選択で反映）** — `config.json` を開く
 
----
-
-## 3. プロセス2 — 変換サービス（`service/server.py`, Python）
-
-役割: 候補生成（辞書）、LLM リランク、ユーザー辞書、文脈つき適応学習、区切り変換。`ThreadingHTTPServer`、LaunchAgent で常駐、起動時に LLM をバックグラウンドで warm-load。
-
-### `/convert` の変換パイプライン
-
-```
-reading（かな）
-   │
-   ▼ _normalize（口語正規化: こうゆう→こういう 等。元読みの候補も残す）
-   ▼ mozcpy n-best（正規化＋元の両読み）＋ 生かな fallback → dedupe
-   │         = ordered（辞書順の候補。実在のみ＝ハルシネーション無し）
-   │
-   ▼ use_llm の時: _rerank(context, ordered)
-   │     LLM の sum-loglik で並べ替え（生成しない＝1パスのスコアリング）
-   │     ・全候補を1回のバッチ forward（右パディング）
-   │     ・文脈は1度だけ forward して KV キャッシュ化、候補にタイル複製
-   │
-   ▼ _apply_userdict(reading, ordered)
-   │     ユーザー辞書の登録表記を候補2番目に差し込み（#1は据え置き）
-   │
-   ▼ _apply_learned(reading, ordered, context)
-   │     文脈一致の学習 → 無ければ広域学習 で先頭へ昇格（後述）
-   │
-   ▼ candidates（最終順）
-```
-
-ポイント: **生成は辞書(mozcpy)、LLM はスコアリングだけ**。これにより造語ゼロ・高速（生成ループ無し）・オフライン。
-
-### `/convert`（segments モード）= 区切り変換
-
-```
-convert_segments(segments, context)
-   各セグメントを左から独立に変換（dict-only）
-      acc = 確定文脈 ＋ 手前セグメントの確定 を累積して次に渡す
-   → 各 best を連結して返す
-```
-
-手動で区切ると各セグメントが短くなり、**辞書の頻度 top1 が速くて良い**（LLM は孤立短語で外す＋40倍遅いので使わない）。
-
-### LLM リランク（`_rerank`）
-
-- 入力: 文脈 ＋ 同一読みの候補群（長さがほぼ揃う）。出力: スコア順。
-- スコア = `P(候補トークン | 文脈)` の**合計対数尤度（sum）**。mean では信号が消える。
-- バッチ＋文脈 KV キャッシュで warm ~0.1〜0.3s（候補ごと forward の旧実装比 約2.5倍）。
+辞書・設定は **IME を選び直したとき**（`activateServer`）に再読込する。
 
 ---
 
-## 4. 状態とデータ
+## 3. 変換エンジン — AzooKeyKanaKanjiConverter + Zenzai
+
+純 Swift の変換ライブラリ。`KanaKanjiConverter.requestCandidates(_:options:)` に、かな読みを積んだ `ComposingText` と `ConvertRequestOptions` を渡すと、`ConversionResult`（`mainResults` ＝候補列、`firstClauseResults` ＝先頭文節候補）が返る。
+
+### `ConvertRequestOptions`（`convertOptions()` で組み立て）
+
+| 項目 | 値 | 由来 |
+|---|---|---|
+| `N_best` | 9 | `config.nBest` |
+| `learningType` | `.inputAndOutput` / `.nothing` | `config.learning` |
+| `dictionaryResourceURL` | `…/Resources/Dictionary` | 同梱辞書フォルダ（`config.dictionaryFolder`） |
+| `memoryDirectoryURL` / `sharedContainerURL` | App Support/RomKana | 学習メモリの永続先 |
+| `zenzaiMode` | `.on(weight:, inferenceLimit: 10, personalizationMode: nil)` | zenz GGUF を指定（`config.inferenceLimit`） |
+| `shouldResetMemory` | 通常 false | メニューのリセット時のみ true |
+
+### Zenzai（zenz ニューラルモデル）
+
+- かな漢字変換に特化した小型ニューラルモデルを、辞書変換の上で使って候補を賢く並べる仕組み。
+- 実体は **llama.cpp**（`llama.framework`）＋ **zenz の GGUF**。本アプリは **zenz-v3.2-small** の `ggml-model-Q5_K_M.gguf`（GPT-2系 char、約95Mパラメータ、量子化後 70MB）を同梱。
+- Metal で動き、warm 後の1変換は ~50ms。初回のみモデルロードで重いので、`activateServer` でダミー変換して**ウォームアップ**する。
+
+### 同梱辞書
+
+AzooKey の既定辞書を `Dictionary` フォルダとして同梱し、`dictionaryResourceURL` で明示的に指す。SwiftPM の `Bundle.module` はアクセサが実行ファイル隣（.build パス）/ .app 直下しか見ず、`Contents/Resources` を見ないため使えない。コード署名の都合（後述）でも、`.bundle` でなく**素のフォルダ**として置くのが扱いやすい。
+
+---
+
+## 4. ユーザー辞書（`loadUserDictionary`）
+
+手編集の `userdict.json`（`{"読み": ["表記", ...]}`）を、AzooKey の**動的ユーザー辞書**に流し込む。AzooKey は見出しの読みを `ruby`（＝ルビ）と呼び、**カタカナ**で持つ決まり。
+
+```
+userdict.json
+   │  読み（ひらがな）をカタカナのルビに変換（0x3041–0x3096 を +0x60）
+   ▼
+DicdataElement(word: 表記, ruby: ルビ(カタカナの読み),
+               cid: 固有名詞, mid: 一般, value: config.userDictWeight)
+   ▼
+KanaKanjiConverter.sendToDicdataStore(.importDynamicUserDict([...]))
+```
+
+- `value`（既定 -10、小さいほど強い）で候補順を押し上げる。
+- `activateServer` ごとに読み直すので、編集して IME を選び直せば反映。`importDynamicUserDict` は毎回まとめて差し替える。
+- 例: `あい→AI`、`おk→OK`、`めるこいん→メルコイン`、`おねしゃす→お願いします` など、英略語・社内語・口語。
+
+---
+
+## 5. 設定（`Sources/Config.swift` / `config.json`）
+
+チューニング値はコードに直書きせず、`~/Library/Application Support/RomKana/config.json` から読む。
+
+| キー | 既定 | 意味 |
+|---|---|---|
+| `nBest` | 9 | 候補の幅 |
+| `inferenceLimit` | 10 | Zenzai の推論上限 |
+| `chunkCandidateLimit` | 4 | 空白チャンクごとの代替候補数 |
+| `learning` | true | AzooKey 学習の ON/OFF |
+| `userDictWeight` | -10 | ユーザー辞書の重み（小さいほど強い） |
+| `modelFile` | `ggml-model-Q5_K_M.gguf` | zenz GGUF のファイル名 |
+| `dictionaryFolder` | `Dictionary` | 同梱辞書フォルダ名 |
+| `warmupReading` | `てすと` | 起動時ウォームアップの読み |
+| `latinVerbatimPattern` | `^[A-Z][A-Za-z0-9]*$` | そのまま残す英字の判定 |
+| `debugLog` | true | `/tmp/romkana_conv.log` を書くか |
+
+- 既定値はコード側に持ち、**ファイルが無ければ自動生成**、**一部キーだけ書いても残りは既定**（部分上書き）。
+- 反映は `userdict.json` と同じく **IME 再選択時**。
+
+---
+
+## 6. 状態とデータ
 
 | データ | 場所 | 形 | 更新 |
 |---|---|---|---|
-| 適応学習 | `~/Library/Application Support/RomKana/learned.json` | `{"<文脈バケツ>\t<読み>": {表記: 回数}}` | 確定のたび（`/learn`） |
-| ユーザー辞書 | 同ディレクトリ `userdict.json` | `{"読み": ["表記", ...]}` | 手編集（mtime ホットリロード） |
-| 直近文脈 | IME メモリ `recentContext` | 直近24字の確定テキスト | 確定のたび |
-| LLM | サービスメモリ | MLX モデル（~1.2GB常駐） | 起動時1回ロード |
-
-### 文脈つき適応学習（`_apply_learned`）
-
-学習キーは `"<直前2文字>\t<読み>"`。空バケツ＝「どの文脈でも」（広域）。
-
-```
-記録: 確定時に 広域キー と 文脈別キー の両方をカウント
-適用: 文脈別キーに勝者(≥2回)があれば昇格
-      無ければ 広域キー(≥2回) にフォールバック
-```
-
-→ 同じ読みが文脈で出し分く（雨/飴）。**LLM の賢さに依存しない**（小型モデルは同音語の文脈分岐が弱く、ユーザーの履歴の方が当たる、という実測に基づく設計）。
+| 設定 | `~/Library/Application Support/RomKana/config.json` | キー/値 JSON | 手編集（再選択で反映） |
+| ユーザー辞書 | 同ディレクトリ `userdict.json` | `{"読み": ["表記", ...]}` | 手編集（再選択で反映） |
+| 学習メモリ | 同ディレクトリ（AzooKey 管理） | AzooKey 内部形式 | 確定のたび |
 
 ---
 
-## 5. API（HTTP, localhost のみ）
+## 7. 主要な設計判断（と理由）
 
-| メソッド・パス | 用途 | 主な入出力 |
-|---|---|---|
-| `POST /convert` | 変換 | `{reading, context, n_best, use_llm}` または `{segments, context, ...}` → `{candidates, best}` |
-| `POST /learn` | 学習記録 | `{reading, surface, context}` |
-| `POST /reset_learn` | 学習リセット | `{}`（全消し）/ `{reading}`（個別・全バケツ） |
-| `GET /learned` | 学習内容取得 | → `{learned}` |
-| `GET /health` | 死活・モデルロード状態 | → `{ok, llm}` |
-
----
-
-## 6. 主要な設計判断（と理由）
-
-1. **生成は辞書、LLM はスコアリング**: ローカル小型モデルに生成させると質が出ず遅い。辞書が実在候補を出し、LLM は `P(候補|文脈)` の計算だけ担う。造語ゼロ・高速・オフライン。
-2. **上限つき同期待ち**: 「フリーズ無し」と「先頭が動かない」は両立しない。最大400msだけ LLM を待つ同期方式で、ジャンプ無し・#1 に LLM 品質・体感~0.1〜0.3s に。
-3. **完全ローカル**: ネット不要・無料・プライベート。クラウド生成（Sumibi 等）より速い（生成ループとネット往復が無い）が、品質はモデルに依存（~17/30 vs クラウド~29/30）。
-4. **区切り変換は dict-only**: 手動区切りでは辞書 top1 が速くて良い。LLM は孤立短語で逆に外す。
-5. **学習は LLM 非依存**: 同音語の文脈分岐は弱い小型モデルよりユーザー履歴が当たる。文脈バケツ＋広域フォールバックで実装。
-6. **IME はアプリの確定済みテキストを触れない**ため、Sumibi の「下線なし実テキストを領域変換」は不可。preedit で近似している。
+1. **変換は専用ニューラル（zenz）に寄せる**: 汎用 LLM をスコアラとして使う旧方式より、かな漢字変換に特化した zenz の方が、同一30問の実測で精度が上（後述ベンチ）。しかも軽い・速い。
+2. **単一プロセス**: 変換が純 Swift＋軽量 GGUF で済むので、IME に直接組み込める。HTTP サービス／LaunchAgent／Python ランタイムを廃止し、常駐 ~74MB に。
+3. **同期変換でジャンプ無し**: requestCandidates が ~50ms と速いので、旧構成で苦労した「非同期の順番ジャンプ」「待ち時間」が原理的に消えた。
+4. **学習は AzooKey 組み込みを採用**: 自前の文脈バケツ学習より、ライブラリの単語＋文脈学習の方が精度が良いと判断（移行時の選択）。
+5. **空白区切りで文節を明示**: ユーザーが空白で区切る＝文節境界を教えてくれる。これを使い、チャンクごとの代替候補を並べて「1語だけ同音異義を選び直す」を実現。
+6. **候補は入力全体をカバーするものを優先**: `mainResults` は途中までの文節候補も含むため、`correspondingCount` で全体カバーを先頭に出し、ゴミ候補を下げる。
+7. **チューニング値は config.json**: モデル・推論上限・候補数・重みなどを再ビルド無しで触れるよう外部化。
+8. **IME はアプリの確定済みテキストを触れない**ため、Sumibi の「下線なし実テキストを領域変換」は不可。preedit で近似する（この制約は旧構成と同じ）。
 
 ---
 
-## 7. 性能特性（warm、Qwen3-1.7B）
+## 8. 性能特性（warm, zenz-v3.2-small Q5_K_M）
 
 | 操作 | 体感 |
 |---|---|
-| 入力中のかな/ローマ字表示 | 即時（ローカル、サービス不要） |
-| 変換（短文・文脈あり） | ~0.1〜0.15s |
-| 変換（長文・長文脈） | ~0.3s（400ms deadline 内） |
-| 区切り変換 | ~0.03s（dict-only） |
-| サービス常駐メモリ | ~1.2GB（モデル込み） |
+| 入力中のかな/ローマ字表示 | 即時（ローカル） |
+| 変換（文まるごと） | ~50ms |
+| 区切り変換 | チャンク数 × 数十ms（各チャンクで requestCandidates） |
+| 初回変換 | モデルロードで重い → `activateServer` でウォームアップ済み |
+| 常駐メモリ | ~74MB（モデル込み） |
+
+### 精度の実測（同一30問・top1・本アプリの辞書＋GGUF）
+
+| 方式 | 正解 | 速度 | メモリ |
+|---|---|---|---|
+| 旧: mozcpy 辞書のみ | 22/30 | ~20ms | — |
+| 旧: mozcpy + Qwen3-1.7B | 26/30 | ~100–280ms | ~1.2GB |
+| **現: AzooKey + Zenzai** | **28/30** | **~50ms** | **74MB** |
+
+全体では現行が上。ただし**個別には旧 LLM が勝つ問題もある**（例: 「けっきょくせいどがよくなった」→ 旧=精度○ / 現=制度✗）。広い文脈理解は 1.7B の方が強い場面が残る、という正直な結果。詳細は [`development-journey.md`](./development-journey.md) の移行章を参照。
 
 ---
 
-## 8. ビルドと配置
+## 9. ビルドと配置（`scripts/build_install.sh`）
 
-- `scripts/build_install.sh` — `swiftc -module-name RomKana` でビルド → `~/Library/Input Methods/RomKana.app` に組立 → ad-hoc 署名 → `open`＋`killall` で再読込。
+```
+swift build -c release            # SwiftPM（AzooKey + Zenzai trait, Cxx interop）
+   ↓ ~/Library/Input Methods/RomKana.app に組立
+   ├─ Contents/MacOS/RomKana                 実行ファイル
+   ├─ Contents/MacOS/llama.framework         Zenzai の llama.cpp（@rpath で読む）
+   ├─ Contents/Resources/Dictionary/         AzooKey 既定辞書（素フォルダ）
+   ├─ Contents/Resources/ggml-model-Q5_K_M.gguf   zenz モデル
+   ├─ Contents/Info.plist / *.lproj / main.tiff
+   ↓ ad-hoc 署名（--deep, entitlements）
+   ↓ open ＋ killall で再読込
+```
+
+- **`Package.swift`**: `AzooKeyKanaKanjiConverter`（`.upToNextMinor(from: "0.8.0")`, trait `["Zenzai"]`）に依存。target は `.interoperabilityMode(.Cxx)`（C++ 相互運用）＋ `.swiftLanguageMode(.v5)`。
+- **llama.framework は必須**: Zenzai の llama.cpp は動的フレームワークで、実行ファイルが `@rpath`（`@loader_path` → `Contents/MacOS`）で読む。同梱し忘れると dyld クラッシュ。
+- **辞書は素フォルダで同梱**: AzooKey のリソース `.bundle` は Info.plist が無く、codesign が入れ子バンドルとして弾く。`Dictionary` フォルダだけ普通のリソースとして置き、`dictionaryResourceURL` で指す。
 - バンドルID `com.toshinao.inputmethod.RomKana`（**`.inputmethod.` が必須**。これが無いと入力ソースに出ない）。
-- サービスは LaunchAgent `com.toshinao.romkana.service`（`service/*.plist`、`RunAtLoad`＋`KeepAlive`）で常駐。`.venv/bin/python service/server.py`。
 
 ---
 
-## 9. ファイル一覧
+## 10. ファイル一覧
 
 ```
 ~/dev/romkana/
 ├── Sources/
-│   ├── main.swift               IMKServer 起動・登録の儀式
-│   ├── RomKanaController.swift   IMEの中核（入力/候補/確定/通信/学習/メニュー）
+│   ├── main.swift               IMKServer 起動・入力ソース登録
+│   ├── RomKanaController.swift   IMEの中核（入力/変換/候補/確定/学習/辞書/設定/メニュー）
 │   ├── RomajiConverter.swift     ローカル romaji→かな表
-│   ├── ConversionClient.swift    ※レガシー・未配線
-│   └── Log.swift                 ログ補助（本番化で除去予定）
-├── service/
-│   ├── server.py                 変換サービス（辞書＋LLM＋辞書＋学習＋区切り）
-│   └── com.toshinao.romkana.service.plist
+│   ├── Config.swift              config.json の読み込み・既定生成
+│   └── Log.swift                 ログ補助
+├── models/
+│   └── zenz-v3.2-small-gguf/ggml-model-Q5_K_M.gguf   同梱する zenz モデル
 ├── scripts/build_install.sh      ビルド→配置→再読込
+├── Package.swift / Package.resolved
 ├── Info.plist / *.entitlements   IME バンドル設定
 └── docs/
-    ├── architecture.md           （この文書）
+    ├── architecture.md           （この文書・現行）
+    ├── architecture-legacy.md    旧構成（mozcpy + LLM スコアリング）
     └── development-journey.md     経緯・設計判断の物語
 
 ~/Library/Application Support/RomKana/
-├── learned.json                  文脈つき適応学習
-└── userdict.json                 ユーザー辞書
+├── config.json                  設定
+├── userdict.json                ユーザー辞書
+└── （AzooKey 学習メモリ）         確定で更新
 ```
