@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- ===== Standard bundle keys ===== -->
+  <key>CFBundleIdentifier</key>
+  <string>com.toshinao.inputmethod.RomKana</string>
+  <key>CFBundleName</key>
+  <string>RomKana</string>
+  <key>CFBundleDisplayName</key>
+  <string>RomKana</string>
+  <key>CFBundleExecutable</key>
+  <string>RomKana</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleVersion</key>
+  <string>2</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.2</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>14.0</string>
+
+  <!-- Faceless background agent (no Dock icon) -->
+  <key>LSBackgroundOnly</key>
+  <true/>
+
+  <!-- Custom NSApplication subclass; "<Module>.<Class>" for Swift -->
+  <key>NSPrincipalClass</key>
+  <string>RomKana.NSManualApplication</string>
+
+  <!-- ===== IMK wiring ===== -->
+  <!-- MUST equal CFBundleIdentifier + "_Connection" -->
+  <key>InputMethodConnectionName</key>
+  <string>com.toshinao.inputmethod.RomKana_Connection</string>
+  <key>InputMethodServerControllerClass</key>
+  <string>RomKana.RomKanaController</string>
+  <key>InputMethodServerDelegateClass</key>
+  <string>RomKana.RomKanaController</string>
+  <key>TISIntendedLanguage</key>
+  <string>ja</string>
+
+  <key>tsInputMethodCharacterRepertoireKey</key>
+  <array>
+    <string>Hira</string>
+    <string>Kana</string>
+    <string>Hani</string>
+    <string>Latn</string>
+  </array>
+  <key>tsInputMethodIconFileKey</key>
+  <string>main.tiff</string>
+
+  <!-- ===== Input modes: makes the IME appear in
+       System Settings > Keyboard > Input Sources ===== -->
+  <key>ComponentInputModeDict</key>
+  <dict>
+    <key>tsInputModeListKey</key>
+    <dict>
+      <!-- Mode KEY must be Apple's standard mode id so macOS treats this as the
+           Hiragana (romaji-input) mode. Uniqueness comes from TISInputSourceID.
+           (Same pattern as Google日本語入力 / mozc.) -->
+      <key>com.apple.inputmethod.Japanese</key>
+      <dict>
+        <key>TISInputSourceID</key>
+        <string>com.toshinao.inputmethod.RomKana.Japanese</string>
+        <key>TISIntendedLanguage</key>
+        <string>ja</string>
+        <key>tsInputModeScriptKey</key>
+        <string>smJapanese</string>
+        <key>tsInputModeIsVisibleKey</key>
+        <true/>
+        <key>tsInputModeDefaultStateKey</key>
+        <true/>
+        <key>tsInputModePrimaryInScriptKey</key>
+        <true/>
+        <key>tsInputModeMenuIconFileKey</key>
+        <string>main.tiff</string>
+        <key>tsInputModePaletteIconFileKey</key>
+        <string>main.tiff</string>
+        <key>tsInputModeAlternateMenuIconFileKey</key>
+        <string>main.tiff</string>
+      </dict>
+    </dict>
+    <key>tsVisibleInputModeOrderedArrayKey</key>
+    <array>
+      <string>com.apple.inputmethod.Japanese</string>
+    </array>
+  </dict>
+</dict>
+</plist>

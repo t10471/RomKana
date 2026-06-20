@@ -1,0 +1,343 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		17BD7378A15AE322F97E9639 /* Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FB393A06528DC3F45C1F2C3 /* Log.swift */; };
+		9A69A5AB58930AF2E5FF1D52 /* RomajiConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D160312B2A612769F7FDE9C /* RomajiConverter.swift */; };
+		9AA2DE2A5CBAEFA5EADA4077 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94130D87B323EACFCB1F1811 /* main.swift */; };
+		ADDFEF1F3AEB0C62FEAA1A27 /* main.tiff in Resources */ = {isa = PBXBuildFile; fileRef = FC7E708E45823FF9943451F7 /* main.tiff */; };
+		E7A325877EFF6B2A7253FC57 /* ConversionClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2A13502A3CC0A59CAAB485A /* ConversionClient.swift */; };
+		ED160F9359CB67ADC09F5D9D /* RomKanaController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08F87E5087AEA049C0837088 /* RomKanaController.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		08F87E5087AEA049C0837088 /* RomKanaController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RomKanaController.swift; sourceTree = "<group>"; };
+		2714D9E152DF52689CA282F9 /* RomKana.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RomKana.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5FB393A06528DC3F45C1F2C3 /* Log.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Log.swift; sourceTree = "<group>"; };
+		8D160312B2A612769F7FDE9C /* RomajiConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RomajiConverter.swift; sourceTree = "<group>"; };
+		94130D87B323EACFCB1F1811 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		B2A13502A3CC0A59CAAB485A /* ConversionClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionClient.swift; sourceTree = "<group>"; };
+		FC7E708E45823FF9943451F7 /* main.tiff */ = {isa = PBXFileReference; lastKnownFileType = image.tiff; path = main.tiff; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		A80C0B58C916D608F9DB2F9D /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				2714D9E152DF52689CA282F9 /* RomKana.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		C80422A924E016FA2D96460C /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				FC7E708E45823FF9943451F7 /* main.tiff */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		D33F24D0BF93BCA7F4BD1D40 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				B2A13502A3CC0A59CAAB485A /* ConversionClient.swift */,
+				5FB393A06528DC3F45C1F2C3 /* Log.swift */,
+				94130D87B323EACFCB1F1811 /* main.swift */,
+				8D160312B2A612769F7FDE9C /* RomajiConverter.swift */,
+				08F87E5087AEA049C0837088 /* RomKanaController.swift */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		DCDF1C5E0B51DB99286F0366 = {
+			isa = PBXGroup;
+			children = (
+				C80422A924E016FA2D96460C /* Resources */,
+				D33F24D0BF93BCA7F4BD1D40 /* Sources */,
+				A80C0B58C916D608F9DB2F9D /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		E00AD8EA63B78BD29BA30788 /* RomKana */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 10ED7439506AFDF9D6E23DA1 /* Build configuration list for PBXNativeTarget "RomKana" */;
+			buildPhases = (
+				E14493398BE027622851F18E /* Sources */,
+				1B5BEA72714A526707E63CD0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RomKana;
+			packageProductDependencies = (
+			);
+			productName = RomKana;
+			productReference = 2714D9E152DF52689CA282F9 /* RomKana.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		EE887DA9F684182D74053EC8 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					E00AD8EA63B78BD29BA30788 = {
+						DevelopmentTeam = 3KDT54BKDX;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = F0FF449BDFCEC02798DE7142 /* Build configuration list for PBXProject "RomKana" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = DCDF1C5E0B51DB99286F0366;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = A80C0B58C916D608F9DB2F9D /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E00AD8EA63B78BD29BA30788 /* RomKana */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		1B5BEA72714A526707E63CD0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				ADDFEF1F3AEB0C62FEAA1A27 /* main.tiff in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		E14493398BE027622851F18E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E7A325877EFF6B2A7253FC57 /* ConversionClient.swift in Sources */,
+				17BD7378A15AE322F97E9639 /* Log.swift in Sources */,
+				ED160F9359CB67ADC09F5D9D /* RomKanaController.swift in Sources */,
+				9A69A5AB58930AF2E5FF1D52 /* RomajiConverter.swift in Sources */,
+				9AA2DE2A5CBAEFA5EADA4077 /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		1D8070EF50797446BB8F5A32 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 3KDT54BKDX;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		3985249C7B5DC7E4F46619C1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 3KDT54BKDX;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		3DDE1E23B5E1CF321778D9ED /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = RomKana.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = 3KDT54BKDX;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.toshinao.romkana;
+				PRODUCT_NAME = RomKana;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		DCEA1CEC31F8B8BDB0AFC88B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = RomKana.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = 3KDT54BKDX;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.toshinao.romkana;
+				PRODUCT_NAME = RomKana;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		10ED7439506AFDF9D6E23DA1 /* Build configuration list for PBXNativeTarget "RomKana" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3DDE1E23B5E1CF321778D9ED /* Debug */,
+				DCEA1CEC31F8B8BDB0AFC88B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F0FF449BDFCEC02798DE7142 /* Build configuration list for PBXProject "RomKana" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3985249C7B5DC7E4F46619C1 /* Debug */,
+				1D8070EF50797446BB8F5A32 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = EE887DA9F684182D74053EC8 /* Project object */;
+}
