@@ -231,7 +231,7 @@ KanaKanjiConverter.sendToDicdataStore(.importDynamicUserDict([...]))
 | 旧: mozcpy + Qwen3-1.7B | 26/30 | ~100–280ms | ~1.2GB |
 | **現: AzooKey + Zenzai** | **28/30** | **~50ms** | **74MB** |
 
-全体では現行が上。ただし**個別には旧 LLM が勝つ問題もある**（例: 「けっきょくせいどがよくなった」→ 旧=精度○ / 現=制度✗）。広い文脈理解は 1.7B の方が強い場面が残る、という正直な結果。詳細は [`development-journey.md`](./development-journey.md) の移行章を参照。
+全体では現行が上。ただし**個別には旧 LLM が勝つ問題もある**（例: 「けっきょくせいどがよくなった」→ 旧=精度○ / 現=制度✗）。広い文脈理解は 1.7B の方が強い場面が残る、という正直な結果。詳細は [`development-journey.md`](./development-journey.md) の移行編を参照。
 
 ---
 

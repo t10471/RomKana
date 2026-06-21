@@ -47,6 +47,18 @@ codesign --force --deep --sign - \
   --entitlements "$ROOT/RomKana.entitlements" \
   "$APP"
 
+# Seed the default user dictionary on FIRST install only. The live dictionary
+# lives in Application Support (not in the .app), so we never overwrite a
+# hand-edited userdict.json — we only drop the default when none exists yet.
+SUPPORT="$HOME/Library/Application Support/RomKana"
+mkdir -p "$SUPPORT"
+if [ ! -f "$SUPPORT/userdict.json" ]; then
+  cp "$ROOT/userdict.default.json" "$SUPPORT/userdict.json"
+  echo "==> seeded default userdict.json into $SUPPORT"
+else
+  echo "==> userdict.json already exists; left as-is (not overwritten)"
+fi
+
 echo "==> registering / reloading"
 /usr/bin/open "$APP" || true        # let the system (re)discover the bundle
 killall RomKana 2>/dev/null || true # kill old instance; macOS respawns on next keystroke

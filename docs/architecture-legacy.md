@@ -235,7 +235,8 @@ convert_segments(segments, context)
 ├── scripts/build_install.sh      ビルド→配置→再読込
 ├── Info.plist / *.entitlements   IME バンドル設定
 └── docs/
-    ├── architecture.md           （この文書）
+    ├── architecture.md           現行構成
+    ├── architecture-legacy.md    （この文書）
     └── development-journey.md     経緯・設計判断の物語
 
 ~/Library/Application Support/RomKana/
