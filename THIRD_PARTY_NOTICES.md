@@ -9,7 +9,7 @@ RomKana（`~/Library/Input Methods/RomKana.app`）は、以下の第三者の成
 | AzooKeyKanaKanjiConverter | 静的リンク | MIT | © 2023 Miwa / Ensan | https://github.com/azooKey/AzooKeyKanaKanjiConverter |
 | AzooKey 既定辞書（azooKey_dictionary_storage） | `Dictionary/` フォルダを同梱 | Apache-2.0 | © 2024 Miwa / ensan | （上記リポジトリに同梱） |
 | llama.cpp（`llama.framework`） | フレームワーク同梱 | MIT | © 2023 Georgi Gerganov and ggml authors | https://github.com/ggml-org/llama.cpp ／ ビルド: https://github.com/azooKey/llama.cpp release `b4846` |
-| zenz-v3.2-small（`ggml-model-Q5_K_M.gguf`） | モデルファイル同梱 | **CC-BY-SA-4.0** | © Miwa Keita (ensan) | https://huggingface.co/Miwa-Keita/zenz-v3-small（GGUF量子化版） |
+| zenz-v3.2-small（`ggml-model-Q5_K_M.gguf`） | モデルファイル同梱 | **CC-BY-SA-4.0** | © Miwa Keita (ensan) | https://huggingface.co/Miwa-Keita/zenz-v3.2-small-gguf |
 | SwiftyMarisa | 静的リンク | BSD-2-Clause（デュアルのうち選択。他に LGPL） | © 2016 Vladimir Solomenchuk | https://github.com/ensan-hcl/SwiftyMarisa （marisa-trie © 2010 Susumu Yata） |
 | Jinja | 静的リンク | MIT | © 2024 John Mai | https://github.com/maiqingqiang/Jinja |
 | swift-tokenizers | 静的リンク | Apache-2.0 | © Hugging Face | https://github.com/ensan-hcl/swift-tokenizers |
