@@ -124,7 +124,7 @@ struct RomajiConverter {
         // foreign-sound (外来語) syllables — without these, e.g. "zye"/"je"
         // (じぇ in プロジェクト) leak latin into the reading.
         "je": "じぇ", "jye": "じぇ", "zye": "じぇ",
-        "che": "ちぇ", "she": "しぇ",
+        "che": "ちぇ", "tye": "ちぇ", "cye": "ちぇ", "she": "しぇ", "sye": "しぇ",
         "thi": "てぃ", "dhi": "でぃ", "thu": "てゅ", "dhu": "でゅ",
         "twu": "とぅ", "dwu": "どぅ",
         "tsi": "つぃ", "ye": "いぇ", "who": "うぉ",
