@@ -27,7 +27,20 @@ final class RomKanaController: IMKInputController {
 
     private enum Mode {
         case composing   // user is typing romaji
-        case converting  // candidate window is up, choosing one
+        case converting  // candidate window is up, choosing one (single flat list)
+        case bunsetsu    // 文節変換: 文を文節に分け、文節ごとに選び直す
+    }
+
+    // One 文節 in 文節変換: its kana reading, the candidates for that reading
+    // (best-first), and which one is selected. The surface is the chosen text.
+    private struct Clause {
+        var reading: String          // この文節のかな（境界の真実はこの長さ）
+        var candidates: [Candidate]  // best-first。初期は firstClause の暫定1件
+        var selected: Int
+        var expanded = false         // Space で全候補を取得済みか（遅延取得）
+        var surface: String {
+            candidates.indices.contains(selected) ? candidates[selected].text : reading
+        }
     }
 
     private var romajiBuffer = ""
@@ -52,6 +65,14 @@ final class RomKanaController: IMKInputController {
     private var lastCandidates: [Candidate] = []
     // Set by the menu; the next conversion clears azooKey's learning memory once.
     private var pendingMemoryReset = false
+
+    // 文節変換 state (mode == .bunsetsu). `clauses` joined by reading equals the
+    // whole sentence reading; each clause length is its boundary. `focusedClause`
+    // is the one ←/→ moves over and Space/Option+arrows act on. `clauseWindowUp`
+    // tracks whether the candidate window currently shows the focused clause.
+    private var clauses: [Clause] = []
+    private var focusedClause = 0
+    private var clauseWindowUp = false
 
     // Candidate window owned by THIS controller (Typut pattern) so IMK routes
     // candidates(_:) / candidateSelected(_:) callbacks back to us.
@@ -138,6 +159,7 @@ final class RomKanaController: IMKInputController {
         switch mode {
         case .composing:  return handleComposing(event, client)
         case .converting: return handleConverting(event, client)
+        case .bunsetsu:   return handleBunsetsu(event, client)
         }
     }
 
@@ -158,7 +180,9 @@ final class RomKanaController: IMKInputController {
 
     // Commit whatever is in progress (used before switching input mode).
     private func flush(_ client: IMKTextInput) {
-        if mode == .converting {
+        if mode == .bunsetsu {
+            commitClauses(client)
+        } else if mode == .converting {
             commit(currentSelection(), client)
         } else if !romajiBuffer.isEmpty {
             commit(composedReading(), client)
@@ -248,6 +272,82 @@ final class RomKanaController: IMKInputController {
         }
     }
 
+    // MARK: - 文節変換 key handling
+
+    // The sentence is split into 文節, the focused one highlighted. ←/→ move the
+    // focus; Space shows that clause's candidates; Option+←/→ resize its boundary;
+    // Enter commits the whole sentence; Esc/Backspace return to romaji editing.
+    private func handleBunsetsu(_ event: NSEvent, _ client: IMKTextInput) -> Bool {
+        // Boundary resize is on Option+←/→, NOT Shift+←/→: converting with
+        // Shift+Space tends to leave Shift held when the user then presses an arrow,
+        // which would fire a resize instead of moving focus. So ←/→ always move the
+        // focus regardless of Shift; Option+←/→ resizes the focused 文節.
+        let resize = event.modifierFlags.contains(.option)
+        switch event.keyCode {
+        case 124: // → : Option で境界を右へ伸ばす / それ以外はフォーカスを右へ
+            if resize { growFocused(client) } else { moveFocus(1, client) }
+            return true
+        case 123: // ← : Option で境界を左へ縮める / それ以外はフォーカスを左へ
+            if resize { shrinkFocused(client) } else { moveFocus(-1, client) }
+            return true
+        case 49: // Space : フォーカス文節の候補ウィンドウを出す / 出ていれば次候補
+            if clauseWindowUp {
+                moveSelection(.down)
+            } else {
+                expandFocusedCandidates()
+                presentClauseCandidates(client)
+            }
+            return true
+        case 125: // ↓ : 候補ウィンドウ表示中のみ次候補
+            if clauseWindowUp { moveSelection(.down) }
+            return true
+        case 126: // ↑ : 候補ウィンドウ表示中のみ前候補
+            if clauseWindowUp { moveSelection(.up) }
+            return true
+        case 36: // Return : ウィンドウ表示中は選択確定して文節モード継続 / なければ全文確定
+            if clauseWindowUp {
+                hideCandidates(); clauseWindowUp = false
+                renderBunsetsu(client)
+            } else {
+                commitClauses(client)
+            }
+            return true
+        case 53: // Escape : ウィンドウ→文節→ローマ字、と段階的に戻す
+            if clauseWindowUp {
+                hideCandidates(); clauseWindowUp = false
+                renderBunsetsu(client)
+            } else {
+                hideCandidates()
+                clauses = []; focusedClause = 0
+                mode = .composing
+                renderComposing(client)  // romajiBuffer is preserved → original romaji
+            }
+            return true
+        case 51: // Backspace : 文節モードを抜けてローマ字編集へ戻す
+            hideCandidates()
+            clauses = []; focusedClause = 0; clauseWindowUp = false
+            mode = .composing
+            renderComposing(client)
+            return true
+        default:
+            // Letters/symbols: commit the sentence, then start a fresh composition.
+            if let ch = asciiLetter(event) {
+                commitClauses(client)
+                romajiBuffer.append(ch)
+                renderComposing(client)
+                return true
+            }
+            if let sym = composableSymbol(event) {
+                commitClauses(client)
+                romajiBuffer.append(sym)
+                renderComposing(client)
+                return true
+            }
+            commitClauses(client)
+            return false
+        }
+    }
+
     private func currentSelection() -> String {
         selectedCandidate ?? candidateList.first ?? composedReading()
     }
@@ -304,6 +404,24 @@ final class RomKanaController: IMKInputController {
 
         let reading = composedReading()
         DebugLog.write("CONVERT romaji=\(raw) -> reading=\(reading)")
+
+        // 文節変換: split the reading into 文節 and let the user move across them
+        // (←/→), pick per-clause candidates (Space), resize boundaries (Option+←/→),
+        // and commit the whole sentence (Enter). Skipped for capitalized-acronym
+        // input (kept verbatim by the flat-list path below).
+        if config.clauseConversion, latinVerbatim(raw) == nil {
+            let cs = splitIntoClauses(reading)
+            if !cs.isEmpty {
+                clauses = cs
+                focusedClause = 0
+                clauseWindowUp = false
+                lastCandidates = []   // learning is driven per-clause on commit
+                mode = .bunsetsu
+                renderBunsetsu(client)
+                return
+            }
+        }
+
         var composing = ComposingText()
         composing.insertAtCursorPosition(reading, inputStyle: .direct)
         let result = kkConverter.requestCandidates(composing, options: convertOptions())
@@ -333,20 +451,231 @@ final class RomKanaController: IMKInputController {
     // first). English/acronyms stay verbatim. Only candidates covering the whole
     // chunk are kept, so we get e.g. ["制度が", "精度が"] not partial fragments.
     private func convertChunkCandidates(_ piece: String) -> [String] {
-        let limit = config.chunkCandidateLimit
         if let v = latinVerbatim(piece) { return [v] }
         let kana = converter.toKana(piece, finalize: true)
         if kana.range(of: "[A-Za-z]", options: .regularExpression) != nil { return [piece] }
+        let cands = convertReadingCandidates(kana, limit: config.chunkCandidateLimit)
+        return cands.isEmpty ? [kana] : cands.map { $0.text }
+    }
+
+    // Convert one kana reading to the candidates that cover the WHOLE reading
+    // (best-first), keeping the Candidate objects so the chosen one can be fed to
+    // azooKey learning on commit. Partial fragments are dropped; deduped by
+    // surface text; capped at `limit`. Used by both the space-chunk path (via
+    // convertChunkCandidates) and 文節変換 (per-clause candidates).
+    private func convertReadingCandidates(_ kana: String, limit: Int) -> [Candidate] {
+        guard !kana.isEmpty else { return [] }
         var c = ComposingText()
         c.insertAtCursorPosition(kana, inputStyle: .direct)
         let inputCount = c.input.count
         let res = kkConverter.requestCandidates(c, options: convertOptions())
-        var full = res.mainResults.filter { $0.correspondingCount == inputCount }.map { $0.text }
-        if full.isEmpty { full = res.mainResults.map { $0.text } }
-        if full.isEmpty { full = [kana] }
+        var full = res.mainResults.filter { $0.correspondingCount == inputCount }
+        if full.isEmpty { full = res.mainResults }
         var seen = Set<String>()
-        full = full.filter { seen.insert($0).inserted }
+        full = full.filter { seen.insert($0.text).inserted }
         return Array(full.prefix(limit))
+    }
+
+    // MARK: - 文節変換 (clause-by-clause conversion)
+
+    // Split the whole-sentence reading into 文節 from the best whole-sentence
+    // candidate's構成要素 (its DicdataElement list): each element covers ruby.count
+    // input kana, so we slice the reading at those boundaries and seed each clause
+    // with a Candidate built from that element (surface = its word, learnable).
+    // We deliberately do NOT use firstClauseResults — it can collapse a whole
+    // sentence into a single clause (e.g. "今日は歯医者に行く"), defeating 文節変換.
+    // Each clause's full candidate list is fetched lazily (Space → expandFocusedCandidates).
+    private func splitIntoClauses(_ reading: String) -> [Clause] {
+        var composing = ComposingText()
+        composing.insertAtCursorPosition(reading, inputStyle: .direct)
+        let res = kkConverter.requestCandidates(composing, options: convertOptions())
+        pendingMemoryReset = false
+        let chars = Array(reading)
+        let total = chars.count
+        let best = res.mainResults.first(where: { $0.correspondingCount == total })
+                 ?? res.mainResults.first
+        var result: [Clause] = []
+        var pos = 0
+        for elem in best?.data ?? [] {
+            let len = elem.ruby.count
+            guard len > 0, pos < total else { continue }
+            let end = min(pos + len, total)
+            let clauseReading = String(chars[pos..<end])
+            let cand = Candidate(text: elem.word, value: 0, correspondingCount: end - pos,
+                                 lastMid: elem.mid, data: [elem])
+            result.append(Clause(reading: clauseReading, candidates: [cand], selected: 0))
+            pos = end
+        }
+        if pos < total {  // leftover, or no candidate at all: remaining reading as one clause
+            result.append(Clause(reading: String(chars[pos..<total]), candidates: [], selected: 0))
+        }
+        if result.isEmpty {
+            result = [Clause(reading: reading, candidates: [], selected: 0)]
+        }
+        DebugLog.write("SPLIT \(reading) -> "
+            + result.map { "\($0.reading)=\($0.surface)" }.joined(separator: " / ")
+            + "  [data=" + (best?.data.map { "\($0.word):\($0.ruby)" }.joined(separator: ",") ?? "nil") + "]")
+        return result
+    }
+
+    // Lazily fetch the full candidate list for the focused clause (best-first),
+    // keeping whatever surface is currently shown selected. Called before showing
+    // the candidate window so Space reveals all alternatives for that clause.
+    private func expandFocusedCandidates() {
+        guard clauses.indices.contains(focusedClause) else { return }
+        var clause = clauses[focusedClause]
+        guard !clause.expanded else { return }
+        let current = clause.surface
+        var cands = convertReadingCandidates(clause.reading, limit: config.nBest)
+        if !cands.isEmpty {
+            if let idx = cands.firstIndex(where: { $0.text == current }) {
+                clause.selected = idx
+            } else if clause.candidates.indices.contains(clause.selected) {
+                // The firstClause best wasn't in the whole-reading list — keep it.
+                cands.insert(clause.candidates[clause.selected], at: 0)
+                clause.selected = 0
+            } else {
+                clause.selected = 0
+            }
+            clause.candidates = cands
+        }
+        clause.expanded = true
+        clauses[focusedClause] = clause
+    }
+
+    // Rebuild candidates for clause i after its reading changed (boundary resize).
+    private func reconvertClause(_ i: Int) {
+        guard clauses.indices.contains(i) else { return }
+        let cands = convertReadingCandidates(clauses[i].reading, limit: config.nBest)
+        clauses[i].candidates = cands
+        clauses[i].selected = 0
+        clauses[i].expanded = true
+    }
+
+    // ←/→ : move the focus across clauses, closing the candidate window first.
+    private func moveFocus(_ delta: Int, _ client: IMKTextInput) {
+        guard !clauses.isEmpty else { return }
+        if clauseWindowUp { hideCandidates(); clauseWindowUp = false }
+        focusedClause = max(0, min(clauses.count - 1, focusedClause + delta))
+        renderBunsetsu(client)
+    }
+
+    // Option+→ : grow the focused clause by one kana, taken from the next clause.
+    private func growFocused(_ client: IMKTextInput) {
+        guard clauses.indices.contains(focusedClause) else { return }
+        let next = focusedClause + 1
+        guard clauses.indices.contains(next), !clauses[next].reading.isEmpty else { return }
+        let ch = clauses[next].reading.removeFirst()
+        clauses[focusedClause].reading.append(ch)
+        if clauses[next].reading.isEmpty {
+            clauses.remove(at: next)        // absorbed the whole next clause
+        } else {
+            reconvertClause(next)
+        }
+        reconvertClause(focusedClause)
+        clampFocus()
+        if clauseWindowUp { hideCandidates(); clauseWindowUp = false }
+        renderBunsetsu(client)
+    }
+
+    // Option+← : shrink the focused clause by one kana, given to the next clause
+    // (a new trailing clause is created if the focused one is last).
+    private func shrinkFocused(_ client: IMKTextInput) {
+        guard clauses.indices.contains(focusedClause),
+              clauses[focusedClause].reading.count > 1 else { return }   // keep ≥1 kana
+        let ch = clauses[focusedClause].reading.removeLast()
+        let next = focusedClause + 1
+        if clauses.indices.contains(next) {
+            clauses[next].reading = String(ch) + clauses[next].reading
+        } else {
+            clauses.insert(Clause(reading: String(ch), candidates: [], selected: 0), at: next)
+        }
+        reconvertClause(next)
+        reconvertClause(focusedClause)
+        clampFocus()
+        if clauseWindowUp { hideCandidates(); clauseWindowUp = false }
+        renderBunsetsu(client)
+    }
+
+    private func clampFocus() {
+        focusedClause = clauses.isEmpty ? 0 : max(0, min(clauses.count - 1, focusedClause))
+    }
+
+    // Markers wrapping the focused 文節 in the preedit so the selection is visible
+    // even in terminals (WezTerm etc.) that ignore marked-text attributes. These
+    // are display-only — commit uses the bare surfaces, no markers.
+    private static let focusOpen = "《"
+    private static let focusClose = "》"
+
+    // Draw the whole sentence as marked text. The focused 文節 is wrapped in 《》 so
+    // it's visible everywhere; additionally each clause is tagged with
+    // .markedClauseSegment and the focused one gets a thick accent underline +
+    // background, which GUI clients (NSTextView) render richly. Ranges are UTF-16.
+    private func renderBunsetsu(_ client: IMKTextInput) {
+        let display = NSMutableString()
+        var focusRange = NSRange(location: 0, length: 0)
+        var segRanges: [(Int, NSRange)] = []
+        for (i, c) in clauses.enumerated() {
+            let shown = i == focusedClause ? Self.focusOpen + c.surface + Self.focusClose : c.surface
+            let start = display.length
+            display.append(shown)
+            let range = NSRange(location: start, length: (shown as NSString).length)
+            segRanges.append((i, range))
+            if i == focusedClause { focusRange = range }
+        }
+        let attr = NSMutableAttributedString(string: display as String)
+        for (i, range) in segRanges where range.length > 0 {
+            attr.addAttribute(.markedClauseSegment, value: i, range: range)
+            if i == focusedClause {
+                attr.addAttributes([
+                    .underlineStyle: NSUnderlineStyle.thick.rawValue,
+                    .underlineColor: NSColor.controlAccentColor,
+                    .backgroundColor: NSColor.selectedTextBackgroundColor,
+                ], range: range)
+            } else {
+                attr.addAttribute(.underlineStyle,
+                                  value: NSUnderlineStyle.single.rawValue, range: range)
+            }
+        }
+        client.setMarkedText(attr,
+                             selectionRange: focusRange,
+                             replacementRange: NSRange(location: NSNotFound, length: NSNotFound))
+        DebugLog.write("BUNSETSU [" + clauses.enumerated()
+            .map { ($0.0 == focusedClause ? "*" : "") + $0.1.surface }.joined(separator: "|") + "]")
+    }
+
+    private func presentClauseCandidates(_ client: IMKTextInput) {
+        guard clauses.indices.contains(focusedClause),
+              !clauses[focusedClause].candidates.isEmpty else { return }
+        clauseWindowUp = true
+        presentCandidates()
+    }
+
+    // Set the focused clause's selection to the candidate with this surface.
+    private func selectClauseSurface(_ surface: String) {
+        guard clauses.indices.contains(focusedClause) else { return }
+        if let idx = clauses[focusedClause].candidates.firstIndex(where: { $0.text == surface }) {
+            clauses[focusedClause].selected = idx
+        }
+    }
+
+    // Enter : insert the whole sentence and feed each clause's chosen Candidate to
+    // azooKey learning left-to-right, so sentence context chains correctly. Clauses
+    // with no Candidate (raw-kana fallback) are skipped, like the flat-list commit.
+    private func commitClauses(_ client: IMKTextInput) {
+        hideCandidates()
+        let text = clauses.map { $0.surface }.joined()
+        client.insertText(text,
+                          replacementRange: NSRange(location: NSNotFound, length: NSNotFound))
+        if config.learning {
+            for c in clauses where c.candidates.indices.contains(c.selected) {
+                let cand = c.candidates[c.selected]
+                kkConverter.updateLearningData(cand)
+                kkConverter.setCompletedData(cand)
+            }
+        }
+        appendHistory(text)
+        reset(client)
     }
 
     // English/acronym to keep verbatim: matches config.latinVerbatimPattern
@@ -369,7 +698,8 @@ final class RomKanaController: IMKInputController {
         let zenzai: ConvertRequestOptions.ZenzaiMode
         let weight = resources.appendingPathComponent(config.modelFile)
         if FileManager.default.fileExists(atPath: weight.path) {
-            zenzai = .on(weight: weight, inferenceLimit: config.inferenceLimit, personalizationMode: nil)
+            zenzai = .on(weight: weight, inferenceLimit: config.inferenceLimit,
+                         personalizationMode: personalizationMode())
         } else {
             zenzai = .off
         }
@@ -386,6 +716,47 @@ final class RomKanaController: IMKInputController {
             zenzaiMode: zenzai,
             metadata: .init(versionString: "RomKana")
         )
+    }
+
+    // Build Zenzai personalization (個人N-gram) if enabled AND both the bundled base
+    // model and a trained personal model are present. Zenzai then blends "personal ÷
+    // base" to lift your own vocabulary/phrasing. Returns nil (current behavior) when
+    // disabled or either model is missing — so it's a no-op until you train one.
+    private func personalizationMode() -> ConvertRequestOptions.ZenzaiMode.PersonalizationMode? {
+        guard config.personalization else { return nil }
+        let resources = Bundle.main.resourceURL ?? Bundle.main.bundleURL
+        let basePrefix = resources.appendingPathComponent("base_n5_lm/lm")
+        let personalPrefix = Config.supportDir.appendingPathComponent("personal_lm/lm")
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: basePrefix.path + "_c_abc.marisa"),
+              fm.fileExists(atPath: personalPrefix.path + "_c_abc.marisa") else {
+            DebugLog.write("PERSONALIZATION off (model missing) base=\(basePrefix.path) personal=\(personalPrefix.path)")
+            return nil
+        }
+        DebugLog.write("PERSONALIZATION on alpha=\(config.personalizationAlpha) n=\(config.personalizationN)")
+        return .init(baseNgramLanguageModel: basePrefix.path,
+                     personalNgramLanguageModel: personalPrefix.path,
+                     n: config.personalizationN, d: 0.75, alpha: config.personalizationAlpha)
+    }
+
+    // Append a committed sentence to the personalization history (one line per
+    // sentence) so scripts/train_personal.sh can later train a personal N-gram.
+    // Only sentences containing kana/kanji are kept (latin-only / symbol commits are
+    // skipped). Local file only; see README on privacy.
+    private func appendHistory(_ text: String) {
+        guard config.personalization else { return }   // 個人最適化ON時のみ履歴を残す
+        guard text.range(of: "[\\p{Hiragana}\\p{Katakana}\\p{Han}]",
+                         options: .regularExpression) != nil,
+              let data = (text + "\n").data(using: .utf8) else { return }
+        let url = Config.supportDir.appendingPathComponent("personalization_history.txt")
+        if let fh = try? FileHandle(forWritingTo: url) {
+            defer { try? fh.close() }
+            fh.seekToEndOfFile(); fh.write(data)
+        } else {
+            try? FileManager.default.createDirectory(
+                at: Config.supportDir, withIntermediateDirectories: true)
+            try? data.write(to: url)
+        }
     }
 
     // Load the hand-edited user dictionary (reading→surfaces JSON) into azooKey's
@@ -444,10 +815,20 @@ final class RomKanaController: IMKInputController {
 
     // Drive the candidate window's selection by feeding it an arrow-key event.
     // (Space is mapped to "next" by synthesizing a Down arrow.)
+    // The candidate texts currently driving the window: the focused clause's
+    // candidates in 文節 mode, otherwise the flat candidateList.
+    private func activeCandidateTexts() -> [String] {
+        if mode == .bunsetsu, clauses.indices.contains(focusedClause) {
+            return clauses[focusedClause].candidates.map { $0.text }
+        }
+        return candidateList
+    }
+
     private func moveSelection(_ dir: Move) {
-        guard let window = candidatesWindow, !candidateList.isEmpty else { return }
-        let count = candidateList.count
-        let cur = selectedCandidate.flatMap { candidateList.firstIndex(of: $0) } ?? 0
+        let texts = activeCandidateTexts()
+        guard let window = candidatesWindow, !texts.isEmpty else { return }
+        let count = texts.count
+        let cur = selectedCandidate.flatMap { texts.firstIndex(of: $0) } ?? 0
         // IMKCandidates does not wrap on its own, so at an edge we send the
         // opposite arrow (count-1) times to roll around to the other end.
         if dir == .down && cur == count - 1 {
@@ -477,13 +858,21 @@ final class RomKanaController: IMKInputController {
 
     // IMK queries this to populate the candidate window.
     override func candidates(_ sender: Any!) -> [Any]! {
-        DebugLog.write("candidates() queried -> \(candidateList.count) items")
-        return candidateList
+        let texts = activeCandidateTexts()
+        DebugLog.write("candidates() queried -> \(texts.count) items")
+        return texts
     }
 
     // User pressed Enter / clicked a row inside the candidate window.
     override func candidateSelected(_ candidateString: NSAttributedString!) {
         guard let client = self.client() as? IMKTextInput else { return }
+        if mode == .bunsetsu {
+            // Choose this surface for the focused clause; stay in 文節 mode.
+            selectClauseSurface(candidateString.string)
+            hideCandidates(); clauseWindowUp = false
+            renderBunsetsu(client)
+            return
+        }
         commit(candidateString.string, client)
     }
 
@@ -491,9 +880,13 @@ final class RomKanaController: IMKInputController {
     override func candidateSelectionChanged(_ candidateString: NSAttributedString!) {
         DebugLog.write("selectionChanged -> \(candidateString.string)")
         selectedCandidate = candidateString.string
-        if let client = self.client() as? IMKTextInput {
-            setMarked(candidateString.string, client)
+        guard let client = self.client() as? IMKTextInput else { return }
+        if mode == .bunsetsu {
+            selectClauseSurface(candidateString.string)
+            renderBunsetsu(client)
+            return
         }
+        setMarked(candidateString.string, client)
     }
 
     // MARK: - Rendering / commit helpers
@@ -530,6 +923,7 @@ final class RomKanaController: IMKInputController {
             kkConverter.updateLearningData(cand)
             kkConverter.setCompletedData(cand)
         }
+        appendHistory(text)
         reset(client)
     }
 
@@ -538,6 +932,9 @@ final class RomKanaController: IMKInputController {
         candidateList = []
         selectedCandidate = nil
         lastCandidates = []
+        clauses = []
+        focusedClause = 0
+        clauseWindowUp = false
         mode = .composing
         hideCandidates()
         clearMarked(client)
@@ -546,7 +943,9 @@ final class RomKanaController: IMKInputController {
     // IMK calls this when focus changes etc. — flush whatever is composing.
     override func commitComposition(_ sender: Any!) {
         guard let client = sender as? IMKTextInput else { return }
-        if mode == .converting {
+        if mode == .bunsetsu {
+            commitClauses(client)
+        } else if mode == .converting {
             commit(currentSelection(), client)
         } else if !romajiBuffer.isEmpty {
             commit(composedReading(), client)

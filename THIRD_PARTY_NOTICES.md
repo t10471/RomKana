@@ -10,6 +10,7 @@ RomKana（`~/Library/Input Methods/RomKana.app`）は、以下の第三者の成
 | AzooKey 既定辞書（azooKey_dictionary_storage） | `Dictionary/` フォルダを同梱 | Apache-2.0 | © 2024 Miwa / ensan | （上記リポジトリに同梱） |
 | llama.cpp（`llama.framework`） | フレームワーク同梱 | MIT | © 2023 Georgi Gerganov and ggml authors | https://github.com/ggml-org/llama.cpp ／ ビルド: https://github.com/azooKey/llama.cpp release `b4846` |
 | zenz-v3.2-small（`ggml-model-Q5_K_M.gguf`） | モデルファイル同梱 | Apache-2.0 | © Miwa Keita (ensan) | https://huggingface.co/Miwa-Keita/zenz-v3.2-small-gguf |
+| base_n5_lm（個人最適化の base N-gram・任意） | `.marisa` 同梱（personalization 有効時のみ／リポジトリ非収録） | **未明示**（要確認） | © Miwa Keita | https://huggingface.co/Miwa-Keita/base_n5_lm （azooKey-Desktop submodule 由来） |
 | SwiftyMarisa | 静的リンク | BSD-2-Clause（デュアルのうち選択。他に LGPL） | © 2016 Vladimir Solomenchuk | https://github.com/ensan-hcl/SwiftyMarisa （marisa-trie © 2010 Susumu Yata） |
 | Jinja | 静的リンク | MIT | © 2024 John Mai | https://github.com/maiqingqiang/Jinja |
 | swift-tokenizers | 静的リンク | Apache-2.0 | © Hugging Face | https://github.com/ensan-hcl/swift-tokenizers |
@@ -21,6 +22,7 @@ RomKana（`~/Library/Input Methods/RomKana.app`）は、以下の第三者の成
 
 - **zenz モデルは Apache-2.0**（HF リポジトリ [`Miwa-Keita/zenz-v3.2-small-gguf`](https://huggingface.co/Miwa-Keita/zenz-v3.2-small-gguf) の表示）。同梱の `ggml-model-Q5_K_M.gguf` は、配布モデルを **GGUF 形式へ量子化（Q5_K_M）したもの**＝改変にあたるため、その旨をここに明示します（Apache-2.0 §4(b)）。基盤モデルは京都大学 NLP の `gpt2-small-japanese-char` 系です。
 - Apache-2.0 の成果物（zenz モデル・AzooKey 既定辞書・swift-* 各種）のうち、zenz 以外は**未改変**で同梱しています。
+- **base_n5_lm（個人最適化）はライセンス未明示**。HF [`Miwa-Keita/base_n5_lm`](https://huggingface.co/Miwa-Keita/base_n5_lm) に license の記載が無く、azooKey-Desktop のサブモジュールとして提供されている。本リポジトリには含めず（取得手順のみ）、個人最適化を使う場合に各自で取得・同梱する。再配布時は作者にライセンスを確認すること。
 
 ---
 

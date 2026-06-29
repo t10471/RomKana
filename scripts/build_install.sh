@@ -36,6 +36,15 @@ cp -R "$DICT_BUNDLE/Dictionary" "$APP/Contents/Resources/Dictionary"
 # zenz neural model (Zenzai weight), found via Bundle.main at runtime.
 cp "$GGUF" "$APP/Contents/Resources/ggml-model-Q5_K_M.gguf"
 
+# base N-gram language model for Zenzai personalization. Shipped only if present
+# (fetched separately into models/base_n5_lm; see README). Personalization stays
+# off until a personal model is also trained, so a missing base is harmless.
+BASE_LM="$ROOT/models/base_n5_lm"
+if [ -d "$BASE_LM" ]; then
+  cp -R "$BASE_LM" "$APP/Contents/Resources/base_n5_lm"
+  echo "==> bundled base_n5_lm"
+fi
+
 # Ship our license + third-party attributions inside the bundle, so the
 # distributed .app carries the required notices (MIT/BSD-2/Apache-2.0).
 cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE"

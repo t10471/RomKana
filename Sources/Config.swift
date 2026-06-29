@@ -16,6 +16,10 @@ struct Config {
     var warmupReading = "てすと"                      // throwaway reading converted on activate
     var latinVerbatimPattern = "^[A-Z][A-Za-z0-9]*$" // capitalized latin kept verbatim (AI, LLM)
     var debugLog = true                              // write /tmp/romkana_conv.log
+    var clauseConversion = true                      // 文節変換: 空白なし変換で文節ごとに選び直せる
+    var personalization = false                      // 個人N-gram(Zenzai)で変換を個人最適化
+    var personalizationAlpha: Float = 0.5            // 個人モデルの混合強度 (0で無効寄り〜1で強い)
+    var personalizationN = 5                         // 個人/baseN-gramのn (baseと一致させる)
 
     // All RomKana state lives in one Application Support folder.
     static let supportDir = FileManager.default
@@ -47,6 +51,10 @@ struct Config {
         if let v = o["warmupReading"] as? String { cfg.warmupReading = v }
         if let v = o["latinVerbatimPattern"] as? String { cfg.latinVerbatimPattern = v }
         if let v = o["debugLog"] as? Bool { cfg.debugLog = v }
+        if let v = o["clauseConversion"] as? Bool { cfg.clauseConversion = v }
+        if let v = o["personalization"] as? Bool { cfg.personalization = v }
+        if let v = o["personalizationAlpha"] as? Double { cfg.personalizationAlpha = Float(v) }
+        if let v = o["personalizationN"] as? Int { cfg.personalizationN = v }
         return cfg
     }
 
@@ -63,6 +71,10 @@ struct Config {
             "warmupReading": warmupReading,
             "latinVerbatimPattern": latinVerbatimPattern,
             "debugLog": debugLog,
+            "clauseConversion": clauseConversion,
+            "personalization": personalization,
+            "personalizationAlpha": Double(personalizationAlpha),
+            "personalizationN": personalizationN,
         ]
         guard let data = try? JSONSerialization.data(
             withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]) else { return }
