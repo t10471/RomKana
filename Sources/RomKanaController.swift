@@ -463,17 +463,25 @@ final class RomKanaController: IMKInputController {
     // azooKey learning on commit. Partial fragments are dropped; deduped by
     // surface text; capped at `limit`. Used by both the space-chunk path (via
     // convertChunkCandidates) and 文節変換 (per-clause candidates).
-    private func convertReadingCandidates(_ kana: String, limit: Int) -> [Candidate] {
+    private func convertReadingCandidates(_ kana: String, limit: Int, mergeNoZenzai: Bool = true) -> [Candidate] {
         guard !kana.isEmpty else { return [] }
-        var c = ComposingText()
-        c.insertAtCursorPosition(kana, inputStyle: .direct)
-        let inputCount = c.input.count
-        let res = kkConverter.requestCandidates(c, options: convertOptions())
-        var full = res.mainResults.filter { $0.correspondingCount == inputCount }
-        if full.isEmpty { full = res.mainResults }
+        func fullCoverage(useZenzai: Bool) -> [Candidate] {
+            var c = ComposingText()
+            c.insertAtCursorPosition(kana, inputStyle: .direct)
+            let inputCount = c.input.count
+            let res = kkConverter.requestCandidates(c, options: convertOptions(useZenzai: useZenzai))
+            let full = res.mainResults.filter { $0.correspondingCount == inputCount }
+            return full.isEmpty ? res.mainResults : full
+        }
+        // Zenzai keeps only its favored surface at full coverage, dropping homophones
+        // (e.g. for かえってきた it returns 帰ってきた but not 返ってきた). The plain
+        // dictionary lattice still has them, so append the ones Zenzai dropped — this
+        // is what lets the user reach 返って/返ってきた when fixing a clause.
+        var ordered = fullCoverage(useZenzai: true)
+        if mergeNoZenzai { ordered += fullCoverage(useZenzai: false) }
         var seen = Set<String>()
-        full = full.filter { seen.insert($0.text).inserted }
-        return Array(full.prefix(limit))
+        let deduped = ordered.filter { seen.insert($0.text).inserted }
+        return Array(deduped.prefix(limit))
     }
 
     // MARK: - 文節変換 (clause-by-clause conversion)
@@ -482,8 +490,8 @@ final class RomKanaController: IMKInputController {
     // candidate's構成要素 (its DicdataElement list): each element covers ruby.count
     // input kana, so we slice the reading at those boundaries and seed each clause
     // with a Candidate built from that element (surface = its word, learnable).
-    // We deliberately do NOT use firstClauseResults — it can collapse a whole
-    // sentence into a single clause (e.g. "今日は歯医者に行く"), defeating 文節変換.
+    // We deliberately do NOT use firstClauseResults as the primary source — it can
+    // collapse a whole sentence into a single clause (e.g. "今日は歯医者に行く").
     // Each clause's full candidate list is fetched lazily (Space → expandFocusedCandidates).
     private func splitIntoClauses(_ reading: String) -> [Clause] {
         var composing = ComposingText()
@@ -494,9 +502,35 @@ final class RomKanaController: IMKInputController {
         let total = chars.count
         let best = res.mainResults.first(where: { $0.correspondingCount == total })
                  ?? res.mainResults.first
+        let data = best?.data ?? []
+
+        // best.data usually gives clean, context-aware 文節 boundaries. But on some
+        // inputs the lattice mis-merges across a 文節 boundary into one element that
+        // starts mid-word (e.g. きいてかえって… → 聞い | て帰ってき | た | もの). Then a
+        // homophone like 返って is unreachable, because かえって never appears as its own
+        // clause. Detect that and re-segment greedily instead. Detection runs on the
+        // deterministic Zenzai-off conversion (Zenzai's sampled best.data varies
+        // run-to-run, which made this fire inconsistently); also re-segment if the
+        // Zenzai best.data itself happens to look merged this run.
+        var offComposing = ComposingText()
+        offComposing.insertAtCursorPosition(reading, inputStyle: .direct)
+        let offData = (kkConverter.requestCandidates(offComposing, options: convertOptions(useZenzai: false))
+            .mainResults.first(where: { $0.correspondingCount == total }))?.data ?? []
+        if data.isEmpty || dataLooksMerged(offData) || dataLooksMerged(data) {
+            let segs = greedyClauseReadings(reading)
+            if data.isEmpty || segs.count > 1 {
+                let result = segs.map { r -> Clause in
+                    Clause(reading: r, candidates: convertReadingCandidates(r, limit: 1, mergeNoZenzai: false), selected: 0)
+                }
+                DebugLog.write("SPLIT(greedy) \(reading) -> "
+                    + result.map { "\($0.reading)=\($0.surface)" }.joined(separator: " / "))
+                return result.isEmpty ? [Clause(reading: reading, candidates: [], selected: 0)] : result
+            }
+        }
+
         var result: [Clause] = []
         var pos = 0
-        for elem in best?.data ?? [] {
+        for elem in data {
             let len = elem.ruby.count
             guard len > 0, pos < total else { continue }
             let end = min(pos + len, total)
@@ -516,6 +550,76 @@ final class RomKanaController: IMKInputController {
             + result.map { "\($0.reading)=\($0.surface)" }.joined(separator: " / ")
             + "  [data=" + (best?.data.map { "\($0.word):\($0.ruby)" }.joined(separator: ",") ?? "nil") + "]")
         return result
+    }
+
+    // A best.data element that starts with a 付属語/送り仮名 kana (て, の, を …) yet
+    // contains a kanji means the lattice merged across a 文節 boundary (e.g.
+    // て帰ってき) — the boundaries are wrong and homophones inside become unreachable.
+    private func dataLooksMerged(_ data: [DicdataElement]) -> Bool {
+        let leadKana: Set<Character> = [
+            "て", "で", "っ", "ん", "ー", "ょ", "ゃ", "ゅ", "ぁ", "ぃ", "ぅ", "ぇ", "ぉ",
+            "を", "は", "が", "に", "の", "も", "と", "へ", "や",
+        ]
+        return data.contains { e in
+            guard let first = e.word.first, leadKana.contains(first) else { return false }
+            return e.word.range(of: "\\p{Han}", options: .regularExpression) != nil
+        }
+    }
+
+    // Greedy 文節 segmentation of a reading using the dictionary lattice with Zenzai
+    // off (we only need boundaries, and it is much faster + stable). Repeatedly take
+    // the first 文節 (see firstClauseLen) off the front. A trailing 1-kana clause is
+    // almost always a dangling 送り仮名, so merge it back into the previous clause.
+    private func greedyClauseReadings(_ reading: String) -> [String] {
+        var out: [String] = []
+        var chars = Array(reading)
+        var guardLoop = 0
+        while !chars.isEmpty, guardLoop < 64 {
+            guardLoop += 1
+            let n = min(max(1, firstClauseLen(String(chars))), chars.count)
+            out.append(String(chars[0..<n]))
+            chars.removeFirst(n)
+        }
+        var merged: [String] = []
+        for c in out {
+            if c.count == 1, !merged.isEmpty { merged[merged.count - 1] += c }
+            else { merged.append(c) }
+        }
+        return merged
+    }
+
+    // Number of maximal kanji (Han) runs in a surface. A single 文節 has exactly one
+    // content word, so one kanji-run; a candidate spanning two 文節 (e.g. 聞いて帰って)
+    // has two — we use that to avoid cutting across a 文節 boundary.
+    private func kanjiRuns(_ s: String) -> Int {
+        var runs = 0
+        var inRun = false
+        for ch in s {
+            let isHan = String(ch).range(of: "\\p{Han}", options: .regularExpression) != nil
+            if isHan, !inRun { runs += 1 }
+            inRun = isHan
+        }
+        return runs
+    }
+
+    // First-文節 length of a reading: the LONGEST proper-prefix candidate whose surface
+    // has exactly one kanji-run (= one content word + its 送り仮名/付属語). firstClause
+    // and the whole-sentence best.data both mis-merge te-form chains (聞い|て帰ってき),
+    // so this dictionary-only (Zenzai off, deterministic) scan is more reliable.
+    private func firstClauseLen(_ rest: String) -> Int {
+        let len = rest.count
+        guard len > 1 else { return len }
+        var c = ComposingText()
+        c.insertAtCursorPosition(rest, inputStyle: .direct)
+        let res = kkConverter.requestCandidates(c, options: convertOptions(useZenzai: false))
+        var bestLen = 0
+        for cand in res.mainResults
+        where cand.correspondingCount > 0 && cand.correspondingCount < len {
+            if kanjiRuns(cand.text) == 1, cand.correspondingCount > bestLen {
+                bestLen = cand.correspondingCount
+            }
+        }
+        return bestLen > 0 ? bestLen : len
     }
 
     // Lazily fetch the full candidate list for the focused clause (best-first),
@@ -687,7 +791,10 @@ final class RomKanaController: IMKInputController {
     // azooKey conversion options: bundled default dictionary + Zenzai (zenz GGUF
     // shipped inside the app) + built-in learning persisted under Application
     // Support. shouldResetMemory wipes the learning once when the menu requests it.
-    private func convertOptions() -> ConvertRequestOptions {
+    // `useZenzai: false` turns off the neural reranker (dictionary lattice only).
+    // Used where we only need word boundaries (文節 splitting) — much faster — or to
+    // recover homophones Zenzai drops from the full-coverage list (e.g. 返ってきた).
+    private func convertOptions(useZenzai: Bool = true) -> ConvertRequestOptions {
         // Resources are shipped as plain folders inside the .app (codesign-clean),
         // referenced explicitly rather than via SwiftPM's Bundle.module (whose
         // accessor only looks beside the executable / .build path).
@@ -697,7 +804,7 @@ final class RomKanaController: IMKInputController {
         try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         let zenzai: ConvertRequestOptions.ZenzaiMode
         let weight = resources.appendingPathComponent(config.modelFile)
-        if FileManager.default.fileExists(atPath: weight.path) {
+        if useZenzai, FileManager.default.fileExists(atPath: weight.path) {
             zenzai = .on(weight: weight, inferenceLimit: config.inferenceLimit,
                          personalizationMode: personalizationMode())
         } else {
