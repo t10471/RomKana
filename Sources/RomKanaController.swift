@@ -202,9 +202,13 @@ final class RomKanaController: IMKInputController {
                 renderComposing(client)
             }
             return true
-        case 36: // Return -> commit the kana reading as-is
+        case 36: // Return -> commit kana; Shift+Return -> commit raw romaji
             guard !romajiBuffer.isEmpty else { return false }
-            commit(composedReading(), client)
+            if event.modifierFlags.contains(.shift) {
+                commit(romajiBuffer, client)
+            } else {
+                commit(composedReading(), client)
+            }
             return true
         case 51: // Backspace — delete one typed character (the romaji is shown as-is)
             guard !romajiBuffer.isEmpty else { return false }
