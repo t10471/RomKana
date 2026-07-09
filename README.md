@@ -3,7 +3,7 @@
 ローマ字を打つと、文脈を見てかな漢字交じり文に変換する macOS 入力メソッド（IME）。
 変換は **完全ローカル**・**単一プロセス**で動く（外部サービス・ネットワーク不要）。
 
-例: `kouyuufuuninyuuryokusuruto` →（Shift+Space）→ `こうゆう風に入力すると`（候補から選択）
+例: `kouyuufuuninyuuryokusuruto` →（Tab）→ `こうゆう風に入力すると`（候補から選択）
 空白で区切ると文節ごとに変換できる: `seido ga agaranai` → `制度が上がらない`（1語だけ別候補にも差し替え可）
 
 > 旧構成（mozcpy + ローカルLLMスコアリングの Python 2プロセス）は 2026-06 に撤去しました。
@@ -44,7 +44,8 @@ romkana/
 ├── models/base_n5_lm/                                   個人最適化の base N-gram（任意・非収録）
 ├── Package.swift                AzooKeyKanaKanjiConverter(trait Zenzai), Cxx interop
 ├── Info.plist / RomKana.entitlements   IME 登録（バンドルID は .inputmethod. 必須）
-├── scripts/build_install.sh     ビルド→バンドル組立→署名→reload
+├── scripts/build_install.sh     ビルド→バンドル組立→署名→reload（初回/リソース変更時）
+├── scripts/reload.sh            コード変更時の高速リロード（バイナリだけ差し替え・入力ソースを乱さない）
 ├── scripts/train_personal.sh    確定履歴→個人N-gram学習（CliTool ngram train）
 └── docs/                        architecture.md / architecture-legacy.md / development-journey.md
 ```
@@ -66,7 +67,7 @@ romkana/
    `llama.framework`・`Dictionary` フォルダ・zenz GGUF を同梱する。）
 3. 入力ソース追加: システム設定 → キーボード → 入力ソース → ＋ → 日本語 → **RomKana** → 追加
    （初回は反映に再ログインが必要な場合あり）
-4. `Ctrl+Space` 等で RomKana に切替え、TextEdit 等でローマ字入力 → **Shift+Space で変換** →
+4. `Ctrl+Space` 等で RomKana に切替え、TextEdit 等でローマ字入力 → **Tab で変換** →
    Space で候補送り → Enter で確定。
 
 ## 操作
@@ -74,18 +75,20 @@ romkana/
 | キー | 動作 |
 |---|---|
 | 英字/記号 | ローマ字を打鍵、そのまま下線付きインライン表示（Sumibi風） |
+| **Tab** | （入力中）変換／（文節変換中・候補表示中）次候補（フォーカス文節の候補を出す・送る） |
 | Space | （入力中）空白を挿入／（候補表示中）次候補 |
-| **Shift+Space** | （入力中）変換して候補表示 |
 | ↑ / ↓ | 候補移動 |
 | Enter | （入力中）かなのまま確定／（候補中）選択候補を確定 |
 | Backspace | （入力中）1字削除／（候補中）ローマ字編集に戻る |
 | Esc | （候補中）ローマ字編集に戻る／（入力中）取消／（文節変換中）候補→文節→ローマ字と段階的に戻す |
-| ← / → | （文節変換中）フォーカス文節を移動（`《…》`） |
-| Option+← / → | （文節変換中）フォーカス文節の区切りを伸縮 |
+| ← / → | （候補表示中）候補移動／（文節変換中）フォーカス文節を移動（`《…》`） |
+| **Shift+← / →** | （文節変換中）フォーカス文節の区切りを伸縮（範囲変更・ATOK風）。ターミナルでも効く |
+| Option+← / → | （文節変換中）同じく区切りを伸縮。**GUIアプリのみ**——ターミナルは Option を IME に渡さないので Shift+←/→ を使う |
+| Shift+Space | （文節変換中）フォーカス文節の範囲を循環（1かなずつ縮小→最短まで縮んだら全体に戻る）。Shift+←/→ の簡易版 |
 | 英数 / かな | 直接入力モード ⇔ かな入力モード切替 |
 
-- **文節変換**（空白なしで Shift+Space・既定 ON）: 文が文節に分かれ `《…》` がフォーカス文節。`←`/`→` でフォーカス移動、`Space` でその文節の候補、`Option+←`/`Option+→` で文節の区切りを伸縮、`Enter` で全文確定、`Esc` は候補→文節→ローマ字と段階的に戻す（`config.clauseConversion` で OFF 可）。
-- 空白で区切って Shift+Space すると、空白を文節境界として各チャンクを変換し、候補に「1語だけ別候補に差し替えた文」が並ぶ（同音異義を1語だけ選び直せる）。
+- **文節変換**（空白なしで Tab・既定 ON）: 文が文節に分かれ `《…》` がフォーカス文節。`←`/`→` でフォーカス移動、`Shift+←`/`Shift+→` でフォーカス文節の区切りを**伸縮**（範囲変更。まとめすぎ/切りすぎの分割を手で直して狙った語を出せる。ATOK 風・ターミナルでも効く）、`Space` でその文節の候補、`Enter` で全文確定、`Esc` は候補→文節→ローマ字と段階的に戻す（`config.clauseConversion` で OFF 可）。`Option+←`/`Option+→` でも伸縮できる（GUI のみ）。`Shift+Space` はフォーカス文節の範囲を循環させる簡易版（`はいか`→`《はいか》`→`《はい》か`…）。
+- 空白で区切って Tab すると、空白を文節境界として各チャンクを変換し、候補に「1語だけ別候補に差し替えた文」が並ぶ（同音異義を1語だけ選び直せる）。
 - 大文字始まりの英字（`AI` `LLM` `API`）は変換せずそのまま確定候補に出る。
 
 ## 設定・ユーザー辞書
@@ -127,12 +130,14 @@ romkana/
 ## 開発ループ（Xcode 不要）
 
 ```
-bash scripts/build_install.sh      # 再ビルド→再署名→killall（次キー入力で自動再起動）
+bash scripts/reload.sh             # コード変更時の高速リロード（推奨・入力ソースを乱さない）
+bash scripts/build_install.sh      # 初回/リソース変更時（バンドル組立→再署名→reload）
 log stream --predicate 'subsystem == "com.toshinao.romkana"' --level debug   # ログ
 tail -f /tmp/romkana_conv.log      # 変換の詳細（config.debugLog=true のとき）
 ```
 - 接続名/クラス名/`-module-name RomKana` の不一致は無言の未読込の原因。
 - バイナリ差し替え後は必ず再署名（スクリプトが実施）。
+- `build_install.sh` はバンドルを作り直すため、macOS が一瞬 IME を見失って ATOK 等のフォールバック入力ソースが有効化されることがある。コードだけの変更は `reload.sh`（バンドルを消さずバイナリのみ差し替え）を使うと湧かない。
 - `Info.plist` の登録系を変えた時は再ログインで反映。
 - `llama.framework` の同梱忘れは dyld クラッシュ（`@rpath/llama.framework`）の原因。
 
