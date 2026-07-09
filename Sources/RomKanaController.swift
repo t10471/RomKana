@@ -194,14 +194,14 @@ final class RomKanaController: IMKInputController {
 
     private func handleComposing(_ event: NSEvent, _ client: IMKTextInput) -> Bool {
         switch event.keyCode {
-        case 49: // Space inserts a literal space; Shift+Space converts (Sumibi-style)
+        case 48: // Tab -> 変換（ATOK 風）。バッファが空なら素の Tab をアプリへ通す。
+            guard !romajiBuffer.isEmpty else { return false }
+            startConversion(client)
+            return true
+        case 49: // Space はリテラル空白（Sumibi 風の分かち書き＝チャンク境界）
             guard !romajiBuffer.isEmpty else { return false } // empty -> pass plain space
-            if event.modifierFlags.contains(.shift) {
-                startConversion(client)
-            } else {
-                romajiBuffer.append(" ")
-                renderComposing(client)
-            }
+            romajiBuffer.append(" ")
+            renderComposing(client)
             return true
         case 36: // Return -> commit the kana reading as-is
             guard !romajiBuffer.isEmpty else { return false }
@@ -248,10 +248,10 @@ final class RomKanaController: IMKInputController {
             mode = .composing
             renderComposing(client)
             return true
-        case 49, 48, 125: // Space / Tab / Down -> next candidate (Enter commits)
+        case 49, 48, 125, 124: // Space / Tab / Down / → -> next candidate (Enter commits)
             moveSelection(.down)
             return true
-        case 126: // Up -> previous candidate
+        case 126, 123: // Up / ← -> previous candidate
             moveSelection(.up)
             return true
         default:
@@ -279,22 +279,36 @@ final class RomKanaController: IMKInputController {
     // focus; Space shows that clause's candidates; Option+←/→ resize its boundary;
     // Enter commits the whole sentence; Esc/Backspace return to romaji editing.
     private func handleBunsetsu(_ event: NSEvent, _ client: IMKTextInput) -> Bool {
-        // Boundary resize is on Option+←/→, NOT Shift+←/→: converting with
-        // Shift+Space tends to leave Shift held when the user then presses an arrow,
-        // which would fire a resize instead of moving focus. So ←/→ always move the
-        // focus regardless of Shift; Option+←/→ resizes the focused 文節.
-        let resize = event.modifierFlags.contains(.option)
+        // 文節の範囲変更（伸縮）は Shift+←/→（ATOK 風）。変換を Tab に移したので、変換キーの
+        // Shift が指に残って矢印で暴発する心配が無くなり、Shift を伸縮に使えるようになった。
+        // 素の ←/→ はフォーカス移動。Option+←/→ でも伸縮できる（GUIアプリ向け。ターミナルは
+        // Option を IME に渡さないので、端末では Shift を使う）。
+        let resize = event.modifierFlags.contains(.shift) || event.modifierFlags.contains(.option)
         switch event.keyCode {
-        case 124: // → : Option で境界を右へ伸ばす / それ以外はフォーカスを右へ
+        case 124: // → : Shift/Option で境界を右へ伸ばす / それ以外はフォーカスを右へ
             if resize { growFocused(client) } else { moveFocus(1, client) }
             return true
-        case 123: // ← : Option で境界を左へ縮める / それ以外はフォーカスを左へ
+        case 123: // ← : Shift/Option で境界を左へ縮める / それ以外はフォーカスを左へ
             if resize { shrinkFocused(client) } else { moveFocus(-1, client) }
             return true
-        case 49: // Space : フォーカス文節の候補ウィンドウを出す / 出ていれば次候補
+        case 48: // Tab : 変換の選択。フォーカス文節の候補を出す / 出ていれば次候補（Space と同じ）
             if clauseWindowUp {
                 moveSelection(.down)
             } else {
+                expandFocusedCandidates()
+                presentClauseCandidates(client)
+            }
+            return true
+        case 49:
+            if event.modifierFlags.contains(.shift) {
+                // Shift+Space : 自分で文節の範囲を選ぶ。フォーカス文節を1かな縮め、
+                // 1かなまで縮んだら元の全体に戻して循環する（はいか→はい→は→…）。
+                cycleFocusedRange(client)
+            } else if clauseWindowUp {
+                // Space : 候補ウィンドウ表示中は次候補
+                moveSelection(.down)
+            } else {
+                // Space : フォーカス文節の候補ウィンドウを出す
                 expandFocusedCandidates()
                 presentClauseCandidates(client)
             }
@@ -717,6 +731,28 @@ final class RomKanaController: IMKInputController {
 
     private func clampFocus() {
         focusedClause = clauses.isEmpty ? 0 : max(0, min(clauses.count - 1, focusedClause))
+    }
+
+    // Shift+Space in 文節 mode: let the user pick the focused 文節's range by cycling.
+    // Each press shrinks it by one kana (handing the kana to the next 文節); once it's
+    // down to a single kana, the next press absorbs everything from the focus onward
+    // back into it (the full original range) so it wraps: e.g. はいか → はい → は → はいか.
+    // This is how 「はいか」を1文節にまとめて 配下 を出す、といった調整を手でできる。
+    private func cycleFocusedRange(_ client: IMKTextInput) {
+        guard clauses.indices.contains(focusedClause) else { return }
+        if clauseWindowUp { hideCandidates(); clauseWindowUp = false }
+        if clauses[focusedClause].reading.count > 1 {
+            shrinkFocused(client)   // 末尾1かなを次文節へ（再変換・再描画込み）
+        } else {
+            // 1かなまで縮んでいる → フォーカス以降を全部取り込んで全体に戻す（循環）
+            let merged = clauses[focusedClause...].map { $0.reading }.joined()
+            if clauses.count > focusedClause + 1 {
+                clauses.removeSubrange((focusedClause + 1)...)
+            }
+            clauses[focusedClause].reading = merged
+            reconvertClause(focusedClause)
+            renderBunsetsu(client)
+        }
     }
 
     // Markers wrapping the focused 文節 in the preedit so the selection is visible
