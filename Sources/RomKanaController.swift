@@ -144,6 +144,7 @@ final class RomKanaController: IMKInputController {
     override func handle(_ event: NSEvent!, client sender: Any!) -> Bool {
         guard let event = event, event.type == .keyDown,
               let client = sender as? IMKTextInput else { return false }
+        DebugLog.write("KEY code=\(event.keyCode) shift=\(event.modifierFlags.contains(.shift)) option=\(event.modifierFlags.contains(.option)) mode=\(mode) clauses=\(clauses.count) focus=\(focusedClause)")
 
         // Input-mode toggle (JIS 英数 / かな keys).
         switch event.keyCode {
@@ -367,8 +368,15 @@ final class RomKanaController: IMKInputController {
     // Convert the typed romaji — turned into a kana reading — in-process via
     // azooKey's dictionary + Zenzai (the zenz neural model). requestCandidates is
     // synchronous and fast (~60ms), so we run it on the event and show the result.
-    // The chosen candidate is fed back to learning on commit; azooKey tracks
-    // sentence context internally via setCompletedData.
+    // The chosen candidate is fed back to azooKey's learning on commit (see commit()).
+    //
+    // NOTE: we deliberately do NOT call setCompletedData. That drives azooKey's
+    // kana2lattice_afterComplete path (逐次に文節を確定して残りを続けて変換する用途)，
+    // which assumes the next input is the previous input minus the confirmed prefix.
+    // This IME commits whole sentences at once, so that assumption never holds; worse,
+    // our greedy 文節 split re-converts *suffixes* of the reading, which spuriously
+    // matched azooKey's `inputHasSuffix` guard while a stale completedData lingered and
+    // crashed the process with an out-of-range lattice index (入力が丸ごと消える現象).
     private func startConversion(_ client: IMKTextInput) {
         let raw = romajiBuffer
         guard !raw.isEmpty else { return }
@@ -668,7 +676,10 @@ final class RomKanaController: IMKInputController {
     private func growFocused(_ client: IMKTextInput) {
         guard clauses.indices.contains(focusedClause) else { return }
         let next = focusedClause + 1
-        guard clauses.indices.contains(next), !clauses[next].reading.isEmpty else { return }
+        guard clauses.indices.contains(next), !clauses[next].reading.isEmpty else {
+            DebugLog.write("GROW noop (no next clause) focus=\(focusedClause) clauses=\(clauses.count)")
+            return
+        }
         let ch = clauses[next].reading.removeFirst()
         clauses[focusedClause].reading.append(ch)
         if clauses[next].reading.isEmpty {
@@ -686,7 +697,10 @@ final class RomKanaController: IMKInputController {
     // (a new trailing clause is created if the focused one is last).
     private func shrinkFocused(_ client: IMKTextInput) {
         guard clauses.indices.contains(focusedClause),
-              clauses[focusedClause].reading.count > 1 else { return }   // keep ≥1 kana
+              clauses[focusedClause].reading.count > 1 else {
+            DebugLog.write("SHRINK noop (≤1 kana) focus=\(focusedClause) clauses=\(clauses.count)")
+            return   // keep ≥1 kana
+        }
         let ch = clauses[focusedClause].reading.removeLast()
         let next = focusedClause + 1
         if clauses.indices.contains(next) {
@@ -769,13 +783,12 @@ final class RomKanaController: IMKInputController {
     private func commitClauses(_ client: IMKTextInput) {
         hideCandidates()
         let text = clauses.map { $0.surface }.joined()
+        DebugLog.write("COMMITCLAUSES '\(text)' clauses=\(clauses.map { $0.surface }.joined(separator: "|"))")
         client.insertText(text,
                           replacementRange: NSRange(location: NSNotFound, length: NSNotFound))
         if config.learning {
             for c in clauses where c.candidates.indices.contains(c.selected) {
-                let cand = c.candidates[c.selected]
-                kkConverter.updateLearningData(cand)
-                kkConverter.setCompletedData(cand)
+                kkConverter.updateLearningData(c.candidates[c.selected])
             }
         }
         appendHistory(text)
@@ -1020,21 +1033,22 @@ final class RomKanaController: IMKInputController {
     }
 
     private func commit(_ text: String, _ client: IMKTextInput) {
+        DebugLog.write("COMMIT '\(text)' mode=\(mode) buffer='\(romajiBuffer)'")
         hideCandidates()
         client.insertText(text,
                           replacementRange: NSRange(location: NSNotFound, length: NSNotFound))
-        // Feed the chosen candidate back to azooKey's learning memory and its
-        // sentence-context cache. Only fires when committing a real candidate
-        // (plain-kana commits aren't in lastCandidates).
+        // Feed the chosen candidate back to azooKey's learning memory. Only fires
+        // when committing a real candidate (plain-kana commits aren't in
+        // lastCandidates). We intentionally skip setCompletedData — see startConversion.
         if let cand = lastCandidates.first(where: { $0.text == text }) {
             kkConverter.updateLearningData(cand)
-            kkConverter.setCompletedData(cand)
         }
         appendHistory(text)
         reset(client)
     }
 
     private func reset(_ client: IMKTextInput) {
+        DebugLog.write("RESET (was buffer='\(romajiBuffer)' mode=\(mode) clauses=\(clauses.count))")
         romajiBuffer = ""
         candidateList = []
         selectedCandidate = nil
@@ -1050,6 +1064,7 @@ final class RomKanaController: IMKInputController {
     // IMK calls this when focus changes etc. — flush whatever is composing.
     override func commitComposition(_ sender: Any!) {
         guard let client = sender as? IMKTextInput else { return }
+        DebugLog.write("commitComposition mode=\(mode) clauses=\(clauses.count) buffer='\(romajiBuffer)'")
         if mode == .bunsetsu {
             commitClauses(client)
         } else if mode == .converting {
