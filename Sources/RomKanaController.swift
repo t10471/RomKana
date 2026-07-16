@@ -74,15 +74,12 @@ final class RomKanaController: IMKInputController {
     private var focusedClause = 0
     private var clauseWindowUp = false
 
-    // Candidate window owned by THIS controller (Typut pattern) so IMK routes
-    // candidates(_:) / candidateSelected(_:) callbacks back to us.
-    private var candidatesWindow: IMKCandidates!
-
-    override init!(server: IMKServer!, delegate: Any!, client inputClient: Any!) {
-        super.init(server: server, delegate: delegate, client: inputClient)
-        candidatesWindow = IMKCandidates(server: server,
-                                         panelType: kIMKSingleColumnScrollingCandidatePanel)
-    }
+    // Process-lifetime SHARED candidate window (created once in main.swift). Creating a
+    // per-controller IMKCandidates(server:) left dangling references inside the IMKServer,
+    // which crashed (objc_msgSend on a freed object) in deactivateServer on focus changes.
+    // The recommended pattern is that the controller holds no such object; IMK still routes
+    // candidates(_:) / candidateSelected(_:) to the active controller via the server.
+    private var candidatesWindow: IMKCandidates! { sharedCandidates }
 
     // When the IME is selected, warm zenz once (load GGUF + Metal + first inference
     // graph) with a throwaway conversion, so the user's first real Shift+Space is
