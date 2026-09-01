@@ -515,7 +515,9 @@ final class RomKanaController: IMKInputController {
     private func splitIntoClauses(_ reading: String) -> [Clause] {
         var composing = ComposingText()
         composing.insertAtCursorPosition(reading, inputStyle: .direct)
+        let t0 = CFAbsoluteTimeGetCurrent()
         let res = kkConverter.requestCandidates(composing, options: convertOptions())
+        DebugLog.write("TIME requestCandidates \(Int((CFAbsoluteTimeGetCurrent() - t0) * 1000))ms reading=\(reading)")
         pendingMemoryReset = false
         let chars = Array(reading)
         let total = chars.count
@@ -1082,6 +1084,12 @@ final class RomKanaController: IMKInputController {
 
     private func reset(_ client: IMKTextInput) {
         DebugLog.write("RESET (was buffer='\(romajiBuffer)' mode=\(mode) clauses=\(clauses.count))")
+        // End the composition on the converter side too. Without this, previousInputData and
+        // the lattice from the last conversion survive, so the NEXT conversion is treated as
+        // an incremental edit of the previous input: after committing 販売, typing はんばいじょ
+        // reused the 販売 lattice and only appended じょ, so 販売所 was never reachable
+        // (a fresh conversion returns it as the top candidate). Also ends the Zenzai session.
+        kkConverter.stopComposition()
         romajiBuffer = ""
         candidateList = []
         selectedCandidate = nil
