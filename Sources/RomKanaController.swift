@@ -100,6 +100,18 @@ final class RomKanaController: IMKInputController {
         }
     }
 
+    // Persist azooKey's learning memory. It is written ONLY when the dictionary store is
+    // told the keyboard closed (LearningManager.save() runs from that notification), so
+    // without this the learned words lived in RAM and died with the process — nothing was
+    // ever created under memoryDirectoryURL. Deactivation (switching app / input source)
+    // is that moment for an IME. No client() interaction here: IMK tears the client down
+    // around deactivation and touching it is what crashes.
+    override func deactivateServer(_ sender: Any!) {
+        DebugLog.write("DEACTIVATE (saving learning memory)")
+        kkConverter.sendToDicdataStore(.closeKeyboard)
+        super.deactivateServer(sender)
+    }
+
     // MARK: - Input-method menu (from the menu-bar input-source icon)
 
     override func menu() -> NSMenu! {
