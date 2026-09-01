@@ -540,8 +540,36 @@ final class RomKanaController: IMKInputController {
         if data.isEmpty || dataLooksMerged(offData) || dataLooksMerged(data) {
             let segs = greedyClauseReadings(reading)
             if data.isEmpty || segs.count > 1 {
-                let result = segs.map { r -> Clause in
-                    Clause(reading: r, candidates: convertReadingCandidates(r, limit: 1, mergeNoZenzai: false), selected: 0)
+                // Element boundaries of the whole-sentence best, as offsets into the reading.
+                var elemAt: [Int: Int] = [:]      // reading offset -> index into data
+                var acc = 0
+                for (i, e) in data.enumerated() {
+                    elemAt[acc] = i
+                    acc += e.ruby.count
+                }
+                elemAt[acc] = data.count          // end boundary
+                var result: [Clause] = []
+                var pos = 0
+                for r in segs {
+                    let end = pos + r.count
+                    // Take the SURFACE from the whole-sentence conversion whenever this
+                    // segment's boundaries line up with element boundaries. Converting a
+                    // segment on its own loses the sentence context: かいてほしい alone
+                    // becomes 描いてほしい, while the whole sentence yields 書いて欲しい.
+                    // Greedy is only needed for the BOUNDARIES (so 返って stays reachable).
+                    if let si = elemAt[pos], let ei = elemAt[end], si < ei {
+                        let elems = Array(data[si..<ei])
+                        let cand = Candidate(text: elems.map { $0.word }.joined(), value: 0,
+                                             correspondingCount: end - pos,
+                                             lastMid: elems.last?.mid ?? MIDData.一般.mid,
+                                             data: elems)
+                        result.append(Clause(reading: r, candidates: [cand], selected: 0))
+                    } else {
+                        result.append(Clause(reading: r,
+                                             candidates: convertReadingCandidates(r, limit: 1, mergeNoZenzai: false),
+                                             selected: 0))
+                    }
+                    pos = end
                 }
                 DebugLog.write("SPLIT(greedy) \(reading) -> "
                     + result.map { "\($0.reading)=\($0.surface)" }.joined(separator: " / "))
