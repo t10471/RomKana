@@ -27,6 +27,8 @@ struct Config {
         .appendingPathComponent("RomKana", isDirectory: true)
     static var configURL: URL { supportDir.appendingPathComponent("config.json") }
     static var userDictURL: URL { supportDir.appendingPathComponent("userdict.json") }
+    // Entries that must not leave this machine (社内語 など). Not synced; see README.
+    static var userDictLocalURL: URL { supportDir.appendingPathComponent("userdict.local.json") }
 
     // Load config.json over the defaults. Reads key-by-key so a partial file (only
     // a few overrides) works. Writes a fully-populated default file on first run so

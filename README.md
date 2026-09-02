@@ -93,11 +93,12 @@ romkana/
 
 ## 設定・ユーザー辞書
 
-`~/Library/Application Support/RomKana/`（メニューの「設定を編集…」「ユーザー辞書を編集…」から開ける。**IME を選び直すと反映**）。
+`~/Library/Application Support/RomKana/`（メニューの各「…を編集…」から開ける。**IME を選び直すと反映**）。
 
 - `config.json` — `nBest` / `inferenceLimit` / `chunkCandidateLimit` / `learning` / `userDictWeight` / `modelFile` / `warmupReading` / `latinVerbatimPattern` / `debugLog` / `clauseConversion`（文節変換）/ `personalization`・`personalizationAlpha`・`personalizationN`（個人最適化）。無ければ自動生成、一部キーだけの上書きも可。
-- `userdict.json` — `{"読み": ["表記", ...]}`。例 `あい→AI`、`おk→OK`、`めるこいん→メルコイン`。
-- 学習メモリ — 確定するたび AzooKey が更新（メニューの「学習をリセット」で消去）。
+- `userdict.json` — `{"読み": ["表記", ...]}`。例 `あい→AI`、`おk→OK`、`まーじ→マージ`。
+- `userdict.local.json` — 同じ形式で、**そのPCから出したくない語**を書く。両ファイルはマージして読まれ、同じ読みが両方にあれば両方の表記が候補になる。共有したい `userdict.json` だけを別リポジトリに置いてシンボリックリンクを張れば、複数のPCで辞書を共有しつつ、社内語などはPCごとに留められる。
+- 学習メモリ — 確定するたび AzooKey が更新し、IME が非アクティブになるときに保存される（メニューの「学習をリセット」で消去）。
 
 ## 個人最適化（Zenzai パーソナライゼーション・任意）
 

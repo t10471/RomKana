@@ -120,10 +120,14 @@ final class RomKanaController: IMKInputController {
                                action: #selector(menuResetLearning(_:)), keyEquivalent: "")
         reset.target = self
         menu.addItem(reset)
-        let edit = NSMenuItem(title: "ユーザー辞書を編集…（再選択で反映）",
+        let edit = NSMenuItem(title: "ユーザー辞書を編集…（共有・再選択で反映）",
                               action: #selector(menuOpenUserDict(_:)), keyEquivalent: "")
         edit.target = self
         menu.addItem(edit)
+        let editLocal = NSMenuItem(title: "ユーザー辞書を編集…（このPCのみ）",
+                                   action: #selector(menuOpenUserDictLocal(_:)), keyEquivalent: "")
+        editLocal.target = self
+        menu.addItem(editLocal)
         let settings = NSMenuItem(title: "設定を編集…（再選択で反映）",
                                   action: #selector(menuOpenConfig(_:)), keyEquivalent: "")
         settings.target = self
@@ -140,6 +144,15 @@ final class RomKanaController: IMKInputController {
     // Open the user dictionary JSON; loadUserDictionary() re-reads it on re-select.
     @objc private func menuOpenUserDict(_ sender: Any?) {
         NSWorkspace.shared.open(Config.userDictURL)
+    }
+
+    // Open the machine-local dictionary, creating an empty one on first use.
+    @objc private func menuOpenUserDictLocal(_ sender: Any?) {
+        let url = Config.userDictLocalURL
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try? Data("{\n}\n".utf8).write(to: url)
+        }
+        NSWorkspace.shared.open(url)
     }
 
     // Open config.json; Config.load() re-reads it on re-select.
@@ -959,10 +972,25 @@ final class RomKanaController: IMKInputController {
     // candidates. Runs on each activation so edits take effect when you re-select
     // the IME. importDynamicUserDict replaces the whole set in one call.
     private func loadUserDictionary() {
-        let url = Config.userDictURL
-        guard let data = try? Data(contentsOf: url),
-              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: [String]]
-        else { DebugLog.write("USERDICT not loaded (file/parse failed) path=\(url.path)"); return }
+        // Two files are merged: userdict.json is the shared set (kept in the
+        // private-settings repo and symlinked here, so it follows you across machines),
+        // while userdict.local.json stays on this machine for entries that must not
+        // leave it. A reading present in both contributes the surfaces of both.
+        var dict: [String: [String]] = [:]
+        for url in [Config.userDictURL, Config.userDictLocalURL] {
+            guard let data = try? Data(contentsOf: url),
+                  let part = try? JSONSerialization.jsonObject(with: data) as? [String: [String]]
+            else {
+                DebugLog.write("USERDICT skip \(url.lastPathComponent) (missing or unparsable)")
+                continue
+            }
+            for (reading, surfaces) in part {
+                for s in surfaces where !dict[reading, default: []].contains(s) {
+                    dict[reading, default: []].append(s)
+                }
+            }
+        }
+        guard !dict.isEmpty else { DebugLog.write("USERDICT not loaded (no entries)"); return }
         var elements: [DicdataElement] = []
         for (reading, surfaces) in dict {
             // ruby must be katakana; convert the hiragana reading (ー and others pass through).
