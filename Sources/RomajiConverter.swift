@@ -129,7 +129,8 @@ struct RomajiConverter {
         "twu": "とぅ", "dwu": "どぅ",
         "tsi": "つぃ", "ye": "いぇ", "who": "うぉ",
         "kwa": "くぁ", "qa": "くぁ", "gwa": "ぐぁ", "fyu": "ふゅ",
-        // punctuation
-        "-": "ー", ".": "。", ",": "、", "[": "「", "]": "」",
+        // punctuation. "/" is 中点 (・) as on a standard JIS IME; type a literal slash in
+        // 英数 mode. "?" and "!" are deliberately left as ASCII.
+        "-": "ー", ".": "。", ",": "、", "[": "「", "]": "」", "/": "・",
     ]
 }
