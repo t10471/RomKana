@@ -530,6 +530,34 @@ final class RomKanaController: IMKInputController {
 
     // MARK: - 文節変換 (clause-by-clause conversion)
 
+    // Readings registered in the user dictionary, kept so we can pin their surface.
+    private var userDict: [String: [String]] = [:]
+
+    // A reading the user registered must win, but registering it with azooKey only adds
+    // it to the candidate LIST — Zenzai still decides the top candidate from its own
+    // preference (けして stayed 決して, さいど stayed サイド). So for a 文節 whose reading
+    // matches an entry exactly, put the registered surface first and select it. Other
+    // candidates stay reachable with Tab/Space.
+    private func applyUserDictPriority(_ clauses: [Clause]) -> [Clause] {
+        guard !userDict.isEmpty else { return clauses }
+        return clauses.map { clause in
+            guard let surfaces = userDict[clause.reading], !surfaces.isEmpty else { return clause }
+            var c = clause
+            var cands = c.candidates
+            // 登録表記を先頭へ（既にあれば取り除いてから入れ直す）
+            for s in surfaces.reversed() {
+                cands.removeAll { $0.text == s }
+                cands.insert(Candidate(text: s, value: PValue(config.userDictWeight),
+                                       correspondingCount: clause.reading.count,
+                                       lastMid: MIDData.一般.mid, data: []), at: 0)
+            }
+            c.candidates = cands
+            c.selected = 0
+            DebugLog.write("USERDICT pin \(clause.reading) -> \(surfaces[0])")
+            return c
+        }
+    }
+
     // Split the whole-sentence reading into 文節 from the best whole-sentence
     // candidate's構成要素 (its DicdataElement list): each element covers ruby.count
     // input kana, so we slice the reading at those boundaries and seed each clause
@@ -598,7 +626,7 @@ final class RomKanaController: IMKInputController {
                 }
                 DebugLog.write("SPLIT(greedy) \(reading) -> "
                     + result.map { "\($0.reading)=\($0.surface)" }.joined(separator: " / "))
-                return result.isEmpty ? [Clause(reading: reading, candidates: [], selected: 0)] : result
+                return applyUserDictPriority(result.isEmpty ? [Clause(reading: reading, candidates: [], selected: 0)] : result)
             }
         }
 
@@ -623,7 +651,7 @@ final class RomKanaController: IMKInputController {
         DebugLog.write("SPLIT \(reading) -> "
             + result.map { "\($0.reading)=\($0.surface)" }.joined(separator: " / ")
             + "  [data=" + (best?.data.map { "\($0.word):\($0.ruby)" }.joined(separator: ",") ?? "nil") + "]")
-        return result
+        return applyUserDictPriority(result)
     }
 
     // A best.data element that starts with a 付属語/送り仮名 kana (て, の, を …) yet
@@ -991,6 +1019,7 @@ final class RomKanaController: IMKInputController {
             }
         }
         guard !dict.isEmpty else { DebugLog.write("USERDICT not loaded (no entries)"); return }
+        userDict = dict          // 文節の第1候補を固定するのに使う（applyUserDictPriority）
         var elements: [DicdataElement] = []
         for (reading, surfaces) in dict {
             // ruby must be katakana; convert the hiragana reading (ー and others pass through).
