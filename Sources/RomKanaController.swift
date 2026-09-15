@@ -558,6 +558,15 @@ final class RomKanaController: IMKInputController {
         }
     }
 
+    // 半角数字に続く助数詞の「つ」は、azooKey が未知語と見てカタカナにしてしまう
+    // （1つ → 1|ツ、1つめ → 1|ツメ。辞書に載っている 1つの だけは正しく出る）。
+    // 読み全体がこの形のときは変換にかけず、打ったままのひらがなを返す。
+    private func numericTsuSurfaces(_ reading: String) -> [String]? {
+        guard reading.range(of: "^[0-9]+つめ?$", options: .regularExpression) != nil else { return nil }
+        if reading.hasSuffix("め") { return [reading, String(reading.dropLast()) + "目"] }
+        return [reading]
+    }
+
     // Split the whole-sentence reading into 文節 from the best whole-sentence
     // candidate's構成要素 (its DicdataElement list): each element covers ruby.count
     // input kana, so we slice the reading at those boundaries and seed each clause
@@ -575,6 +584,15 @@ final class RomKanaController: IMKInputController {
                            candidates: surfaces.map {
                                Candidate(text: $0, value: PValue(config.userDictWeight),
                                          correspondingCount: reading.count,
+                                         lastMid: MIDData.一般.mid, data: [])
+                           },
+                           selected: 0)]
+        }
+        if let surfaces = numericTsuSurfaces(reading) {
+            DebugLog.write("NUMTSU \(reading) -> \(surfaces[0])")
+            return [Clause(reading: reading,
+                           candidates: surfaces.map {
+                               Candidate(text: $0, value: 0, correspondingCount: reading.count,
                                          lastMid: MIDData.一般.mid, data: [])
                            },
                            selected: 0)]
