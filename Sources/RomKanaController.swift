@@ -566,6 +566,19 @@ final class RomKanaController: IMKInputController {
     // collapse a whole sentence into a single clause (e.g. "今日は歯医者に行く").
     // Each clause's full candidate list is fetched lazily (Space → expandFocusedCandidates).
     private func splitIntoClauses(_ reading: String) -> [Clause] {
+        // 読み全体が登録語なら分割しない。Zenzai は辞書に良い語があっても崩すことがあり
+        // （たいげんどめ → たい|限度め。体言止め -15.4 に対し次点は -30 台）、割れてしまうと
+        // どの文節の読みも登録キーと一致しないので applyUserDictPriority が効かない。
+        if let surfaces = userDict[reading], !surfaces.isEmpty {
+            DebugLog.write("USERDICT whole \(reading) -> \(surfaces[0])")
+            return [Clause(reading: reading,
+                           candidates: surfaces.map {
+                               Candidate(text: $0, value: PValue(config.userDictWeight),
+                                         correspondingCount: reading.count,
+                                         lastMid: MIDData.一般.mid, data: [])
+                           },
+                           selected: 0)]
+        }
         var composing = ComposingText()
         composing.insertAtCursorPosition(reading, inputStyle: .direct)
         let t0 = CFAbsoluteTimeGetCurrent()
