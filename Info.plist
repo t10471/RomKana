@@ -29,9 +29,9 @@
   <string>RomKana.NSManualApplication</string>
 
   <!-- ===== IMK wiring ===== -->
-  <!-- MUST equal CFBundleIdentifier + "_Connection" -->
+  <!-- MUST equal simple identifier + "_Connection" (e.g. RomKana_Connection) -->
   <key>InputMethodConnectionName</key>
-  <string>com.toshinao.inputmethod.RomKana_Connection</string>
+  <string>RomKana_Connection</string>
   <key>InputMethodServerControllerClass</key>
   <string>RomKana.RomKanaController</string>
   <key>InputMethodServerDelegateClass</key>
@@ -55,10 +55,8 @@
   <dict>
     <key>tsInputModeListKey</key>
     <dict>
-      <!-- Mode KEY must be Apple's standard mode id so macOS treats this as the
-           Hiragana (romaji-input) mode. Uniqueness comes from TISInputSourceID.
-           (Same pattern as Google日本語入力 / mozc.) -->
-      <key>com.apple.inputmethod.Japanese</key>
+      <!-- Unique mode key for RomKana -->
+      <key>com.toshinao.inputmethod.RomKana.Japanese</key>
       <dict>
         <key>TISInputSourceID</key>
         <string>com.toshinao.inputmethod.RomKana.Japanese</string>
@@ -82,7 +80,7 @@
     </dict>
     <key>tsVisibleInputModeOrderedArrayKey</key>
     <array>
-      <string>com.apple.inputmethod.Japanese</string>
+      <string>com.toshinao.inputmethod.RomKana.Japanese</string>
     </array>
   </dict>
 </dict>

@@ -28,11 +28,23 @@ for lproj in "$ROOT"/Resources/*.lproj; do
   [ -d "$lproj" ] && cp -R "$lproj" "$APP/Contents/Resources/"
 done
 
-# azooKey's default dictionary ships as a flat resource bundle (no Info.plist, so
-# codesign rejects it as a nested bundle). Ship just the Dictionary FOLDER as a
-# normal app resource; the converter is pointed at it via dictionaryResourceURL.
+# azooKey's default dictionary: in Swift 6.4 (macOS 27) it's under Contents/Resources/Dictionary,
+# while in Swift 6.2/6.3 (macOS 26) it's a flat bundle (DICT_BUNDLE/Dictionary).
+# Support both transparently so the script works on macOS 26 and macOS 27.
 DICT_BUNDLE="$BIN/AzooKeyKanakanjiConverter_KanaKanjiConverterModuleWithDefaultDictionary.bundle"
-cp -R "$DICT_BUNDLE/Dictionary" "$APP/Contents/Resources/Dictionary"
+if [ -d "$DICT_BUNDLE/Contents/Resources/Dictionary" ]; then
+  cp -R "$DICT_BUNDLE/Contents/Resources/Dictionary" "$APP/Contents/Resources/Dictionary"
+elif [ -d "$DICT_BUNDLE/Dictionary" ]; then
+  cp -R "$DICT_BUNDLE/Dictionary" "$APP/Contents/Resources/Dictionary"
+else
+  DICT_DIR="$(find "$ROOT/.build" -type d -name "Dictionary" -path "*AzooKeyKanakanjiConverter*" | head -n 1)"
+  if [ -n "$DICT_DIR" ] && [ -d "$DICT_DIR" ]; then
+    cp -R "$DICT_DIR" "$APP/Contents/Resources/Dictionary"
+  else
+    echo "ERROR: Dictionary not found in $DICT_BUNDLE or .build" >&2
+    exit 1
+  fi
+fi
 # zenz neural model (Zenzai weight), found via Bundle.main at runtime.
 cp "$GGUF" "$APP/Contents/Resources/ggml-model-Q5_K_M.gguf"
 
